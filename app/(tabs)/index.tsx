@@ -3,6 +3,7 @@ import { StyleSheet, ScrollView, View, Image, TouchableOpacity, Modal, TextInput
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { MapTilerTileMap } from '../../components/maptiler-tile-map';
 import { ThemedText } from '../../components/themed-text';
 import { ThemedView } from '../../components/themed-view';
 import { auth, db } from '../../src/services/firebaseClient';
@@ -12,6 +13,7 @@ const petImageSources: Record<string, any> = {
   'Rigby.jpg': require('../../assets/pets/Rigby.jpg'),
   'Taz.jpg': require('../../assets/pets/Taz.jpg'),
 };
+const MAPTILER_KEY = process.env.EXPO_PUBLIC_MAPTILER_API_KEY;
 
 export default function HomeScreen() {
   const [user, setUser] = useState<any>(null);
@@ -637,7 +639,20 @@ export default function HomeScreen() {
               <ThemedText style={styles.rangeText}>Your notification range is set to: {user?.radius ?? 'N/A'}</ThemedText>
 
               <View style={styles.mapPreview}>
-                <ThemedText style={styles.mapText}>Map preview (placeholder)</ThemedText>
+                {user?.location && MAPTILER_KEY ? (
+                  <MapTilerTileMap
+                    center={{ latitude: user.location.latitude, longitude: user.location.longitude }}
+                    radiusMiles={Number(user?.radius ?? user?.Radius ?? 5)}
+                    apiKey={MAPTILER_KEY}
+                    zoom={12}
+                    styleId="streets-v4"
+                    containerStyle={styles.mapPreviewTiles}
+                  />
+                ) : (
+                  <ThemedText style={styles.mapText}>
+                    {!MAPTILER_KEY ? 'Set EXPO_PUBLIC_MAPTILER_API_KEY to show your map.' : 'Set a saved location to show your area map.'}
+                  </ThemedText>
+                )}
               </View>
 
               {user?.location && (
@@ -799,10 +814,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#E5F4FF',
     marginBottom: 10,
+    overflow: 'hidden',
+  },
+  mapPreviewTiles: {
+    width: '100%',
+    height: '100%',
   },
   mapText: {
     color: '#1A3B5C',
     fontSize: 12,
+    textAlign: 'center',
+    paddingHorizontal: 8,
   },
   locationSummary: {
     fontSize: 13,

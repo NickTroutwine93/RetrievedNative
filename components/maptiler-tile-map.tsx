@@ -1,0 +1,338 @@
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Image, LayoutChangeEvent, PanResponder, StyleSheet, View, ViewStyle } from 'react-native';
+
+type Coordinate = {
+  latitude: number;
+  longitude: number;
+};
+
+type Props = {
+  center: Coordinate;
+  radiusMiles: number;
+  apiKey: string;
+  zoom?: number;
+  styleId?: string;
+  containerStyle?: ViewStyle;
+};
+
+const TILE_SIZE = 256;
+const MIN_ZOOM = 3;
+const MAX_ZOOM = 18;
+const MAX_LATITUDE = 85.05112878;
+
+function milesToMeters(miles: number) {
+  return miles * 1609.344;
+}
+
+function metersPerPixel(latitude: number, zoom: number) {
+  return (156543.03392 * Math.cos((latitude * Math.PI) / 180)) / Math.pow(2, zoom);
+}
+
+function zoomForMetersPerPixel(latitude: number, metersPerPixelTarget: number) {
+  const safeTarget = Math.max(metersPerPixelTarget, 0.0001);
+  const rawZoom = Math.log2((156543.03392 * Math.cos((latitude * Math.PI) / 180)) / safeTarget);
+  if (!Number.isFinite(rawZoom)) {
+    return MIN_ZOOM;
+  }
+
+  return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, rawZoom));
+}
+
+function longitudeToTileX(longitude: number, zoom: number) {
+  return ((longitude + 180) / 360) * Math.pow(2, zoom);
+}
+
+function latitudeToTileY(latitude: number, zoom: number) {
+  const safeLat = Math.max(-MAX_LATITUDE, Math.min(MAX_LATITUDE, latitude));
+  const latRad = (safeLat * Math.PI) / 180;
+  return ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * Math.pow(2, zoom);
+}
+
+function tileXToLongitude(tileX: number, zoom: number) {
+  return (tileX / Math.pow(2, zoom)) * 360 - 180;
+}
+
+function tileYToLatitude(tileY: number, zoom: number) {
+  const n = Math.PI - (2 * Math.PI * tileY) / Math.pow(2, zoom);
+  return (180 / Math.PI) * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
+}
+
+function wrapTileX(x: number, zoom: number) {
+  const max = Math.pow(2, zoom);
+  return ((x % max) + max) % max;
+}
+
+function isValidCenter(center: Coordinate) {
+  return Number.isFinite(center.latitude) && Number.isFinite(center.longitude);
+}
+
+export function MapTilerTileMap({
+  center,
+  radiusMiles,
+  apiKey,
+  zoom = 12,
+  styleId = 'streets-v4',
+  containerStyle,
+}: Props) {
+  const [layout, setLayout] = useState({ width: 320, height: 240 });
+  const [viewCenter, setViewCenter] = useState(center);
+  const [zoomLevel, setZoomLevel] = useState(zoom);
+  const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
+  const [pinchScale, setPinchScale] = useState(1);
+  const gestureModeRef = useRef<'none' | 'pan' | 'pinch'>('none');
+  const pinchStartDistanceRef = useRef(0);
+  const pinchStartZoomRef = useRef(zoom);
+
+  useEffect(() => {
+    setViewCenter(center);
+  }, [center.latitude, center.longitude]);
+
+  useEffect(() => {
+    setZoomLevel(zoom);
+  }, [zoom]);
+
+  const tileZoom = useMemo(() => {
+    if (!isValidCenter(viewCenter)) {
+      return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.round(zoomLevel)));
+    }
+
+    const minDimension = Math.max(120, Math.min(layout.width, layout.height));
+    const fitTargetRadiusPx = Math.max(32, minDimension * 0.35);
+    const radiusMeters = milesToMeters(Math.max(0.1, radiusMiles));
+    const fitMetersPerPixel = radiusMeters / fitTargetRadiusPx;
+    const fitZoom = zoomForMetersPerPixel(viewCenter.latitude, fitMetersPerPixel);
+
+    // Keep explicit/user zoom when it is zoomed out enough; otherwise auto-zoom out to fit radius.
+    const effectiveZoom = Math.min(zoomLevel, fitZoom);
+    return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.round(effectiveZoom)));
+  }, [layout.height, layout.width, radiusMiles, viewCenter, zoomLevel]);
+
+  const radiusPixelSize = useMemo(() => {
+    if (!isValidCenter(viewCenter)) {
+      return 0;
+    }
+
+    const radiusMeters = milesToMeters(radiusMiles);
+    const mpp = metersPerPixel(viewCenter.latitude, tileZoom);
+    const radiusPx = radiusMeters / Math.max(mpp, 0.0001);
+    const clamped = Math.min(radiusPx, Math.min(layout.width, layout.height) / 2 - 12);
+    return Math.max(8, clamped);
+  }, [layout.height, layout.width, radiusMiles, tileZoom, viewCenter]);
+
+  const tiles = useMemo(() => {
+    if (!apiKey || !isValidCenter(viewCenter)) {
+      return [] as Array<{ key: string; left: number; top: number; uri: string }>;
+    }
+
+    const tileXFloat = longitudeToTileX(viewCenter.longitude, tileZoom);
+    const tileYFloat = latitudeToTileY(viewCenter.latitude, tileZoom);
+    const centerTileX = Math.floor(tileXFloat);
+    const centerTileY = Math.floor(tileYFloat);
+    const offsetX = (tileXFloat - centerTileX) * TILE_SIZE;
+    const offsetY = (tileYFloat - centerTileY) * TILE_SIZE;
+
+    const horizontalCount = Math.ceil(layout.width / TILE_SIZE) + 4;
+    const verticalCount = Math.ceil(layout.height / TILE_SIZE) + 4;
+    const startDx = -Math.floor(horizontalCount / 2);
+    const startDy = -Math.floor(verticalCount / 2);
+    const maxTile = Math.pow(2, tileZoom) - 1;
+
+    const nextTiles: Array<{ key: string; left: number; top: number; uri: string }> = [];
+
+    for (let col = 0; col < horizontalCount; col += 1) {
+      for (let row = 0; row < verticalCount; row += 1) {
+        const dx = startDx + col;
+        const dy = startDy + row;
+        const sourceTileX = centerTileX + dx;
+        const sourceTileY = centerTileY + dy;
+
+        if (sourceTileY < 0 || sourceTileY > maxTile) {
+          continue;
+        }
+
+        const wrappedX = wrapTileX(sourceTileX, tileZoom);
+        const left = layout.width / 2 - offsetX + dx * TILE_SIZE + panOffset.x;
+        const top = layout.height / 2 - offsetY + dy * TILE_SIZE + panOffset.y;
+
+        nextTiles.push({
+          key: `${tileZoom}-${wrappedX}-${sourceTileY}-${col}-${row}`,
+          left,
+          top,
+          uri: `https://api.maptiler.com/maps/${styleId}/${tileZoom}/${wrappedX}/${sourceTileY}.png?key=${apiKey}`,
+        });
+      }
+    }
+
+    return nextTiles;
+  }, [apiKey, layout.height, layout.width, panOffset.x, panOffset.y, styleId, tileZoom, viewCenter]);
+
+  const calculateTouchDistance = (touches: Array<{ pageX: number; pageY: number }>) => {
+    if (touches.length < 2) {
+      return 0;
+    }
+
+    const a = touches[0];
+    const b = touches[1];
+    const dx = b.pageX - a.pageX;
+    const dy = b.pageY - a.pageY;
+    return Math.sqrt(dx * dx + dy * dy);
+  };
+
+  const commitPanToCenter = (dx: number, dy: number) => {
+    if (!isValidCenter(viewCenter)) {
+      return;
+    }
+
+    const currentTileX = longitudeToTileX(viewCenter.longitude, tileZoom);
+    const currentTileY = latitudeToTileY(viewCenter.latitude, tileZoom);
+    const nextTileX = currentTileX - dx / TILE_SIZE;
+    const nextTileY = currentTileY - dy / TILE_SIZE;
+    const maxTileIndex = Math.pow(2, tileZoom) - 1;
+    const clampedTileY = Math.max(0, Math.min(maxTileIndex, nextTileY));
+
+    setViewCenter({
+      latitude: Math.max(-MAX_LATITUDE, Math.min(MAX_LATITUDE, tileYToLatitude(clampedTileY, tileZoom))),
+      longitude: tileXToLongitude(nextTileX, tileZoom),
+    });
+  };
+
+  const panResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponderCapture: () => true,
+        onPanResponderGrant: (event) => {
+          const touches = event.nativeEvent.touches;
+
+          if (touches.length >= 2) {
+            gestureModeRef.current = 'pinch';
+            pinchStartDistanceRef.current = calculateTouchDistance(touches as Array<{ pageX: number; pageY: number }>);
+            pinchStartZoomRef.current = zoomLevel;
+            setPanOffset({ x: 0, y: 0 });
+          } else {
+            gestureModeRef.current = 'pan';
+          }
+        },
+        onPanResponderMove: (event, gestureState) => {
+          const touches = event.nativeEvent.touches;
+
+          if (touches.length >= 2) {
+            const distance = calculateTouchDistance(touches as Array<{ pageX: number; pageY: number }>);
+
+            if (gestureModeRef.current !== 'pinch') {
+              gestureModeRef.current = 'pinch';
+              pinchStartDistanceRef.current = distance;
+              pinchStartZoomRef.current = zoomLevel;
+              setPanOffset({ x: 0, y: 0 });
+              return;
+            }
+
+            if (pinchStartDistanceRef.current > 0) {
+              const scale = Math.max(0.5, Math.min(3, distance / pinchStartDistanceRef.current));
+              setPinchScale(scale);
+            }
+            return;
+          }
+
+          if (gestureModeRef.current !== 'pinch') {
+            gestureModeRef.current = 'pan';
+            setPanOffset({ x: gestureState.dx, y: gestureState.dy });
+          }
+        },
+        onPanResponderRelease: (_event, gestureState) => {
+          if (gestureModeRef.current === 'pinch') {
+            const deltaZoom = Math.log2(Math.max(0.5, Math.min(3, pinchScale)));
+            const nextZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, pinchStartZoomRef.current + deltaZoom));
+            setZoomLevel(nextZoom);
+          } else if (gestureModeRef.current === 'pan') {
+            commitPanToCenter(gestureState.dx, gestureState.dy);
+          }
+
+          gestureModeRef.current = 'none';
+          pinchStartDistanceRef.current = 0;
+          setPanOffset({ x: 0, y: 0 });
+          setPinchScale(1);
+        },
+        onPanResponderTerminate: () => {
+          gestureModeRef.current = 'none';
+          pinchStartDistanceRef.current = 0;
+          setPanOffset({ x: 0, y: 0 });
+          setPinchScale(1);
+        },
+      }),
+    [pinchScale, tileZoom, viewCenter, zoomLevel]
+  );
+
+  const onLayout = (event: LayoutChangeEvent) => {
+    const { width, height } = event.nativeEvent.layout;
+    if (width > 0 && height > 0) {
+      setLayout({ width, height });
+    }
+  };
+
+  return (
+    <View style={[styles.container, containerStyle]} onLayout={onLayout} {...panResponder.panHandlers}>
+      <View style={[styles.tilesLayer, { transform: [{ scale: pinchScale }] }]}>
+        {tiles.map((tile) => (
+          <Image
+            key={tile.key}
+            source={{ uri: tile.uri }}
+            style={[styles.tile, { left: tile.left, top: tile.top }]}
+            resizeMode="cover"
+          />
+        ))}
+      </View>
+
+      <View
+        style={[
+          styles.radiusCircle,
+          {
+            width: radiusPixelSize * 2,
+            height: radiusPixelSize * 2,
+            borderRadius: radiusPixelSize,
+            transform: [{ translateX: -radiusPixelSize }, { translateY: -radiusPixelSize }],
+          },
+        ]}
+      />
+
+      <View style={styles.centerDot} />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    overflow: 'hidden',
+    backgroundColor: '#dfeaf2',
+  },
+  tile: {
+    position: 'absolute',
+    width: TILE_SIZE,
+    height: TILE_SIZE,
+  },
+  tilesLayer: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  radiusCircle: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    borderWidth: 2,
+    borderColor: 'rgba(0, 102, 255, 0.75)',
+    backgroundColor: 'rgba(0, 102, 255, 0.20)',
+  },
+  centerDot: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    marginLeft: -6,
+    marginTop: -6,
+    backgroundColor: '#0a5df0',
+    borderWidth: 2,
+    borderColor: '#ffffff',
+  },
+});
