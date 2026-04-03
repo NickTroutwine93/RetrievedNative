@@ -74,6 +74,7 @@ export function MapTilerTileMap({
   styleId = 'streets-v4',
   containerStyle,
 }: Props) {
+  const containerRef = useRef<any>(null);
   const [layout, setLayout] = useState({ width: 320, height: 240 });
   const [geoCenter, setGeoCenter] = useState(center);
   const [viewCenter, setViewCenter] = useState(center);
@@ -84,6 +85,7 @@ export function MapTilerTileMap({
   const gestureModeRef = useRef<'none' | 'pan' | 'pinch'>('none');
   const pinchStartDistanceRef = useRef(0);
   const pinchStartZoomRef = useRef(zoom);
+  const effectiveZoomRef = useRef(zoom);
 
   useEffect(() => {
     setGeoCenter(center);
@@ -96,9 +98,9 @@ export function MapTilerTileMap({
     setHasUserZoomed(false);
   }, [zoom]);
 
-  const tileZoom = useMemo(() => {
+  const effectiveZoom = useMemo(() => {
     if (!isValidCenter(viewCenter)) {
-      return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.round(zoomLevel)));
+      return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoomLevel));
     }
 
     const minDimension = Math.max(120, Math.min(layout.width, layout.height));
@@ -108,9 +110,17 @@ export function MapTilerTileMap({
     const fitZoom = zoomForMetersPerPixel(viewCenter.latitude, fitMetersPerPixel);
 
     // Before user interaction, auto-fit the circle in view. After interaction, honor user zoom.
-    const effectiveZoom = hasUserZoomed ? zoomLevel : Math.min(zoomLevel, fitZoom);
-    return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.round(effectiveZoom)));
+    const nextZoom = hasUserZoomed ? zoomLevel : Math.min(zoomLevel, fitZoom);
+    return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, nextZoom));
   }, [hasUserZoomed, layout.height, layout.width, radiusMiles, viewCenter, zoomLevel]);
+
+  const tileZoom = useMemo(() => {
+    return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.round(effectiveZoom)));
+  }, [effectiveZoom]);
+
+  useEffect(() => {
+    effectiveZoomRef.current = effectiveZoom;
+  }, [effectiveZoom]);
 
   const radiusPixelSize = useMemo(() => {
     if (!isValidCenter(geoCenter)) {
@@ -118,11 +128,12 @@ export function MapTilerTileMap({
     }
 
     const radiusMeters = milesToMeters(radiusMiles);
-    const mpp = metersPerPixel(geoCenter.latitude, tileZoom);
+    const mpp = metersPerPixel(geoCenter.latitude, effectiveZoom);
     const radiusPx = radiusMeters / Math.max(mpp, 0.0001);
-    const clamped = Math.min(radiusPx, Math.min(layout.width, layout.height) / 2 - 12);
+    const maxVisibleRadiusPx = Math.max(32, Math.min(layout.width, layout.height) * 3);
+    const clamped = Math.min(radiusPx, maxVisibleRadiusPx);
     return Math.max(8, clamped);
-  }, [geoCenter, layout.height, layout.width, radiusMiles, tileZoom]);
+  }, [effectiveZoom, geoCenter, layout.height, layout.width, radiusMiles]);
 
   const overlayCenter = useMemo(() => {
     if (!isValidCenter(geoCenter) || !isValidCenter(viewCenter)) {
@@ -229,7 +240,7 @@ export function MapTilerTileMap({
           if (touches.length >= 2) {
             gestureModeRef.current = 'pinch';
             pinchStartDistanceRef.current = calculateTouchDistance(touches as Array<{ pageX: number; pageY: number }>);
-            pinchStartZoomRef.current = zoomLevel;
+            pinchStartZoomRef.current = effectiveZoomRef.current;
             setPanOffset({ x: 0, y: 0 });
           } else {
             gestureModeRef.current = 'pan';
@@ -244,7 +255,7 @@ export function MapTilerTileMap({
             if (gestureModeRef.current !== 'pinch') {
               gestureModeRef.current = 'pinch';
               pinchStartDistanceRef.current = distance;
-              pinchStartZoomRef.current = zoomLevel;
+              pinchStartZoomRef.current = effectiveZoomRef.current;
               setPanOffset({ x: 0, y: 0 });
               return;
             }
@@ -283,7 +294,7 @@ export function MapTilerTileMap({
           setPinchScale(1);
         },
       }),
-    [pinchScale, tileZoom, viewCenter, zoomLevel]
+    [pinchScale, tileZoom, viewCenter]
   );
 
   const wheelHandlers = useMemo(() => {
@@ -303,8 +314,41 @@ export function MapTilerTileMap({
 
         const step = deltaY < 0 ? 0.35 : -0.35;
         setHasUserZoomed(true);
-        setZoomLevel((prev) => Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, prev + step)));
+        const nextZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, effectiveZoomRef.current + step));
+        setZoomLevel(nextZoom);
       },
+    };
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web') {
+      return;
+    }
+
+    const node = containerRef.current;
+    if (!node || typeof node.addEventListener !== 'function') {
+      return;
+    }
+
+    const onNativeWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+
+      const deltaY = event.deltaY;
+      if (!Number.isFinite(deltaY) || deltaY === 0) {
+        return;
+      }
+
+      const step = deltaY < 0 ? 0.35 : -0.35;
+      setHasUserZoomed(true);
+      const nextZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, effectiveZoomRef.current + step));
+      setZoomLevel(nextZoom);
+    };
+
+    node.addEventListener('wheel', onNativeWheel, { passive: false });
+
+    return () => {
+      node.removeEventListener('wheel', onNativeWheel);
     };
   }, []);
 
@@ -316,7 +360,12 @@ export function MapTilerTileMap({
   };
 
   return (
-    <View style={[styles.container, containerStyle]} onLayout={onLayout} {...panResponder.panHandlers} {...(wheelHandlers as any)}>
+    <View
+      ref={containerRef}
+      style={[styles.container, containerStyle]}
+      onLayout={onLayout}
+      {...panResponder.panHandlers}
+      {...(wheelHandlers as any)}>
       <View style={[styles.tilesLayer, { transform: [{ scale: pinchScale }] }]}>
         {tiles.map((tile) => (
           <Image
@@ -332,12 +381,12 @@ export function MapTilerTileMap({
         style={[
           styles.radiusCircle,
           {
-            width: radiusPixelSize * 2,
-            height: radiusPixelSize * 2,
-            borderRadius: radiusPixelSize,
+            width: radiusPixelSize * 2 * pinchScale,
+            height: radiusPixelSize * 2 * pinchScale,
+            borderRadius: radiusPixelSize * pinchScale,
             left: overlayCenter.x,
             top: overlayCenter.y,
-            transform: [{ translateX: -radiusPixelSize }, { translateY: -radiusPixelSize }],
+            transform: [{ translateX: -radiusPixelSize * pinchScale }, { translateY: -radiusPixelSize * pinchScale }],
           },
         ]}
       />
