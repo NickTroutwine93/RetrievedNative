@@ -1,0 +1,200 @@
+Retrieved Product Roadmap
+Date: April 3, 2026
+
+Vision
+Build the fastest, safest, and most trusted community workflow for finding lost dogs by combining owner-led searches, volunteer coordination, incentives, and shelter collaboration.
+
+Current Baseline (Already Implemented)
+- Account profile setup with location and radius
+- Pet management with add/edit/deactivate
+- Search creation tied to pet and owner
+- Active search listing in Your Searches
+- Area Searches filtered by distance from user location and radius
+- Search detail page with map and radius overlay
+- Join Search flow and Searchers array updates
+- End Search flow with found/not found outcomes
+- Active search indicators and elapsed time labels
+
+Roadmap Strategy
+Prioritize by value and execution risk:
+1) Real-time coordination (messaging)
+2) Incentive system (tips/reward pledge)
+3) Partner channel (shelters/rescues)
+
+--------------------------------------------------
+Phase 1: Foundation Hardening (1-2 weeks)
+Goal
+Stabilize current flows and prepare data/security for messaging and incentives.
+
+Scope
+- Firestore schema cleanup and consistency:
+  - Use one canonical success field name (Successful)
+  - Keep temporary backward compatibility reads for Successfull
+- Add server timestamps where needed:
+  - Search created date and key activity timestamps
+- Role-aware search membership checks:
+  - Owner, joined searcher, viewer
+- Security rules tightening:
+  - Only owner can end search
+  - Only authenticated users can join
+  - Only joined users and owner can post messages (future-proof)
+
+Success Criteria
+- No duplicate active search creation for same owner/pet
+- End Search updates correct fields consistently
+- Rules tests pass for read/write constraints
+
+--------------------------------------------------
+Phase 2: Search Messaging MVP (2-4 weeks)
+Goal
+Enable instant communication between owner and joined searchers inside each search.
+
+Scope
+- New collection structure:
+  - searches/{searchId}/messages/{messageId}
+- Message object fields:
+  - senderId, senderName, text, createdAt, type (text/system), optional location snapshot
+- Search detail UI additions:
+  - Message thread at bottom
+  - Compose input + send
+  - Auto-scroll to latest
+- Presence/read-lite:
+  - Last read timestamp per user per search
+- Push notifications (MVP):
+  - New message alerts for joined users and owner
+
+Safety Features (MVP)
+- Basic report/block action for abusive users
+- Message rate limiting controls
+
+Success Metrics
+- Percentage of active searches with at least one message
+- Median response time from first non-owner message
+- Search completion rate lift vs pre-messaging baseline
+
+--------------------------------------------------
+Phase 3: Reward/Tipping Flow (2-3 weeks)
+Goal
+Create a safe and transparent tip mechanism that increases search participation.
+
+Scope
+- Add reward fields on search:
+  - rewardEnabled, rewardAmount, payoutMethod (venmo), payoutHandle
+- Owner configuration in search detail
+- Claim flow scaffolding:
+  - Candidate finder submission
+  - Owner confirm outcome
+- Initial payout handling:
+  - Manual payout confirmation with event log (MVP)
+
+Compliance and Trust Guardrails
+- In-app disclaimer and terms acceptance
+- Fraud mitigation checks:
+  - Account age, suspicious activity flags, duplicate claims
+
+Success Metrics
+- Percentage of active searches with reward enabled
+- Join rate difference between rewarded vs non-rewarded searches
+- Claim dispute rate
+
+--------------------------------------------------
+Phase 4: Shelter/Rescue Integration Pilot (3-5 weeks)
+Goal
+Connect owners and local organizations for faster verification and broader search reach.
+
+Scope
+- Organization account model:
+  - org profile, service area, contact channel, verification status
+- Shelter dashboard-lite:
+  - View nearby active searches
+  - Mark potential match sightings
+  - Optional intake flag for confirmed found dogs
+- Owner-facing options:
+  - Share search to partner shelters in area
+
+Pilot Rollout Plan
+- Start in one metro area
+- 2-5 org partners first
+- Weekly feedback loop with partner coordinators
+
+Success Metrics
+- Number of partner orgs actively using tools
+- Time-to-first partner interaction per search
+- Recovery rate improvement in pilot geography
+
+--------------------------------------------------
+Phase 5: Operational Scale (ongoing)
+Goal
+Improve reliability, growth, and trust as usage expands.
+
+Scope
+- Analytics dashboard:
+  - Search funnel, join funnel, message activity, outcome trends
+- Growth loops:
+  - Shareable search links, flyer QR codes, referral onboarding
+- Reliability and moderation:
+  - Abuse detection heuristics
+  - Escalation queues
+- Cost optimization:
+  - Query/index tuning, storage lifecycle policies
+
+--------------------------------------------------
+Data Model Additions (Recommended)
+Search (searches/{id})
+- Date (created timestamp)
+- Status (1 active, 0 closed)
+- Successful (0/1)
+- Searchers (array of account ids)
+- Reward fields (phase 3)
+
+Search Message (searches/{id}/messages/{id})
+- senderId
+- senderName
+- text
+- createdAt
+- type
+
+Account (accounts/{id})
+- role (owner/searcher/org)
+- displayName
+- notification preferences
+- moderation flags (internal)
+
+Organization (organizations/{id})
+- name
+- verified
+- serviceArea
+- contact
+
+--------------------------------------------------
+Security/Policy Checklist
+- Least-privilege Firestore rules per collection
+- Owner-only close-search writes
+- Searcher membership validation for message posting
+- Input validation and anti-spam throttles
+- Audit fields for sensitive updates
+
+--------------------------------------------------
+Recommended Delivery Milestones
+Milestone A (2 weeks)
+- Foundation hardening complete
+- Schema consistency and rules tests
+
+Milestone B (4-6 weeks total)
+- Messaging MVP live
+- Notifications and basic moderation controls
+
+Milestone C (7-9 weeks total)
+- Reward pledge and manual payout confirmation flow
+
+Milestone D (10-14 weeks total)
+- Shelter pilot launched in one metro
+
+--------------------------------------------------
+What to Build Next (Immediate)
+1) Messaging data model and service layer
+2) Search detail chat UI and send path
+3) Rules and test coverage for search/member access
+4) Basic push notification trigger for new messages
+
+End of roadmap

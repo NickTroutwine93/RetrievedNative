@@ -16,6 +16,26 @@ This is an [Expo](https://expo.dev) project created with [`create-expo-app`](htt
    npx expo start
    ```
 
+## Deploy to GitHub Pages
+
+This project is configured for GitHub Pages static deployment.
+
+1. Push to `main` (or run the workflow manually):
+
+   - Workflow file: `.github/workflows/deploy-gh-pages.yml`
+
+2. In your GitHub repository settings:
+
+   - Go to `Settings > Pages`
+   - Set `Source` to `GitHub Actions`
+
+3. The workflow exports web to `dist`, creates `404.html` from `index.html` for SPA route fallback, and deploys to Pages.
+
+Notes:
+
+- Expo Router project path is set via `expo.experiments.baseUrl` in `app.json`.
+- If your repository name is not `RetrievedNative`, update `baseUrl` accordingly.
+
 In the output, you'll find options to open the app in a
 
 - [development build](https://docs.expo.dev/develop/development-builds/introduction/)
