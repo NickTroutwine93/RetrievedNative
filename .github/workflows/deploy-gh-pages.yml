@@ -18,6 +18,15 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      EXPO_PUBLIC_FB_API_KEY: ${{ secrets.EXPO_PUBLIC_FB_API_KEY }}
+      EXPO_PUBLIC_FB_DOMAIN: ${{ secrets.EXPO_PUBLIC_FB_DOMAIN }}
+      EXPO_PUBLIC_FB_PROJID: ${{ secrets.EXPO_PUBLIC_FB_PROJID }}
+      EXPO_PUBLIC_FB_STORAGE_BUCKET: ${{ secrets.EXPO_PUBLIC_FB_STORAGE_BUCKET }}
+      EXPO_PUBLIC_FB_MSGSENDERID: ${{ secrets.EXPO_PUBLIC_FB_MSGSENDERID }}
+      EXPO_PUBLIC_FB_APPID: ${{ secrets.EXPO_PUBLIC_FB_APPID }}
+      EXPO_PUBLIC_FB_MEASUREMENTID: ${{ secrets.EXPO_PUBLIC_FB_MEASUREMENTID }}
+      EXPO_PUBLIC_MAPTILER_API_KEY: ${{ secrets.EXPO_PUBLIC_MAPTILER_API_KEY }}
 
     steps:
       - name: Checkout
@@ -31,6 +40,32 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Validate required public env vars
+        run: |
+          set -e
+          required_vars=(
+            EXPO_PUBLIC_FB_API_KEY
+            EXPO_PUBLIC_FB_DOMAIN
+            EXPO_PUBLIC_FB_PROJID
+            EXPO_PUBLIC_FB_STORAGE_BUCKET
+            EXPO_PUBLIC_FB_MSGSENDERID
+            EXPO_PUBLIC_FB_APPID
+            EXPO_PUBLIC_FB_MEASUREMENTID
+          )
+
+          missing=0
+          for var_name in "${required_vars[@]}"; do
+            if [ -z "${!var_name}" ]; then
+              echo "Missing required GitHub secret mapped to $var_name"
+              missing=1
+            fi
+          done
+
+          if [ "$missing" -ne 0 ]; then
+            echo "One or more required EXPO_PUBLIC_* secrets are missing."
+            exit 1
+          fi
 
       - name: Export static web build
         run: npx expo export -p web --output-dir dist

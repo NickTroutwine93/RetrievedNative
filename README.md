@@ -31,6 +31,17 @@ This project is configured for GitHub Pages static deployment.
 
 3. The workflow exports web to `dist`, creates `404.html` from `index.html` for SPA route fallback, and deploys to Pages.
 
+Required repository secrets for the build step:
+
+- `EXPO_PUBLIC_FB_API_KEY`
+- `EXPO_PUBLIC_FB_DOMAIN`
+- `EXPO_PUBLIC_FB_PROJID`
+- `EXPO_PUBLIC_FB_STORAGE_BUCKET`
+- `EXPO_PUBLIC_FB_MSGSENDERID`
+- `EXPO_PUBLIC_FB_APPID`
+- `EXPO_PUBLIC_FB_MEASUREMENTID`
+- `EXPO_PUBLIC_MAPTILER_API_KEY` (recommended for map rendering)
+
 Notes:
 
 - Expo Router project path is set via `expo.experiments.baseUrl` in `app.json`.
