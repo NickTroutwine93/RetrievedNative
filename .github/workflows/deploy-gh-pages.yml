@@ -30,12 +30,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
@@ -55,15 +55,54 @@ jobs:
           )
 
           missing=0
+          normalized_fb_api_key=""
           for var_name in "${required_vars[@]}"; do
-            if [ -z "${!var_name}" ]; then
+            raw_value="${!var_name}"
+            normalized_value="$raw_value"
+
+            if [[ "$normalized_value" == \"*\" ]]; then
+              normalized_value="${normalized_value#\"}"
+              normalized_value="${normalized_value%\"}"
+            fi
+
+            if [[ "$normalized_value" == \'*\' ]]; then
+              normalized_value="${normalized_value#\'}"
+              normalized_value="${normalized_value%\'}"
+            fi
+
+            normalized_value="$(echo -n "$normalized_value" | tr -d '\r')"
+
+            if [ -z "$normalized_value" ]; then
               echo "Missing required GitHub secret mapped to $var_name"
               missing=1
+            else
+              echo "::add-mask::$normalized_value"
+              echo "$var_name=$normalized_value" >> "$GITHUB_ENV"
+              if [ "$var_name" = "EXPO_PUBLIC_FB_API_KEY" ]; then
+                normalized_fb_api_key="$normalized_value"
+              fi
             fi
           done
 
+          if [ -n "${EXPO_PUBLIC_MAPTILER_API_KEY}" ]; then
+            mt_key="${EXPO_PUBLIC_MAPTILER_API_KEY}"
+            if [[ "$mt_key" == \"*\" ]]; then
+              mt_key="${mt_key#\"}"
+              mt_key="${mt_key%\"}"
+            fi
+            mt_key="$(echo -n "$mt_key" | tr -d '\r')"
+            echo "::add-mask::$mt_key"
+            echo "EXPO_PUBLIC_MAPTILER_API_KEY=$mt_key" >> "$GITHUB_ENV"
+          fi
+
           if [ "$missing" -ne 0 ]; then
             echo "One or more required EXPO_PUBLIC_* secrets are missing."
+            exit 1
+          fi
+
+          if [[ ! "$normalized_fb_api_key" =~ ^AIza ]]; then
+            echo "EXPO_PUBLIC_FB_API_KEY does not look valid after normalization."
+            echo "Tip: paste only the raw secret value in GitHub, without quotes."
             exit 1
           fi
 
