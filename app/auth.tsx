@@ -135,7 +135,6 @@ export default function AuthScreen() {
 			locality,
 			address.state || address.state_district,
 			address.postcode,
-			address.country,
 		].filter(Boolean);
 
 		if (parts.length > 0) {

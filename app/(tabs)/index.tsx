@@ -1,13 +1,16 @@
 import React, { useEffect, useState } from 'react';
 import { StyleSheet, ScrollView, View, Image, TouchableOpacity, Modal, TextInput, Alert } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
+import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MapTilerTileMap } from '../../components/maptiler-tile-map';
 import { ThemedText } from '../../components/themed-text';
 import { ThemedView } from '../../components/themed-view';
+import { IconSymbol } from '../../components/ui/icon-symbol';
 import { auth, db } from '../../src/services/firebaseClient';
-import { getUserData, getUserPets, updatePet, addPet, deactivatePet, updateUserProfile } from '../../src/services/userService';
+import { getUserData, getUserPets, updatePet, addPet, deactivatePet, updateUserProfile, createSearch, getUserSearches } from '../../src/services/userService';
 
 const petImageSources: Record<string, any> = {
   'Rigby.jpg': require('../../assets/pets/Rigby.jpg'),
@@ -45,10 +48,14 @@ export default function HomeScreen() {
   const [isGeocodingAddress, setIsGeocodingAddress] = useState(false);
   const [profileCoordinates, setProfileCoordinates] = useState<{ latitude: number; longitude: number } | null>(null);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [creatingSearchPetId, setCreatingSearchPetId] = useState<string | null>(null);
+  const [activeSearchesByPet, setActiveSearchesByPet] = useState<Record<string, any>>({});
+  const [relativeTimeTick, setRelativeTimeTick] = useState(Date.now());
 
   type PetRecord = {
     id?: string;
     docId?: string;
+    OwnerID?: string;
     Name?: string;
     Breed?: string;
     Color?: string[] | string;
@@ -69,31 +76,63 @@ export default function HomeScreen() {
     longitude: number;
   };
 
-  useEffect(() => {
-    async function loadUserData() {
-      try {
-        const signedInEmail = auth.currentUser?.email;
-        if (!signedInEmail) {
-          setLoading(false);
-          return;
-        }
-
-        const account = await getUserData(db, signedInEmail);
-        console.log('user account', account);
-        setUser(account);
-
-        if (account?.id) {
-          const petsData = await getUserPets(db, account.id);
-          console.log('pets data for ownerId', account.id, petsData);
-          setPets(petsData);
-        }
-      } catch (error) {
-        console.error('Error loading user data:', error);
-      } finally {
-        setLoading(false);
+  const loadUserData = async () => {
+    try {
+      setLoading(true);
+      const signedInEmail = auth.currentUser?.email;
+      if (!signedInEmail) {
+        setUser(null);
+        setPets([]);
+        setActiveSearchesByPet({});
+        return;
       }
+
+      const account = await getUserData(db, signedInEmail);
+      setUser(account);
+
+      if (account?.id) {
+        const [petsData, searchesData] = await Promise.all([
+          getUserPets(db, account.id),
+          getUserSearches(db, signedInEmail),
+        ]);
+        setPets(petsData);
+
+        const nextActiveSearches = searchesData.reduce((acc: Record<string, any>, search: any) => {
+          const petId = search.petID ?? search.PetID;
+          const status = search.status ?? search.Status;
+          if (petId && status === 1) {
+            acc[petId] = search;
+          }
+          return acc;
+        }, {});
+        setActiveSearchesByPet(nextActiveSearches);
+      } else {
+        setPets([]);
+        setActiveSearchesByPet({});
+      }
+    } catch (error) {
+      console.error('Error loading user data:', error);
+    } finally {
+      setLoading(false);
     }
-    loadUserData();
+  };
+
+  useEffect(() => {
+    void loadUserData();
+  }, []);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      void loadUserData();
+    }, [])
+  );
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setRelativeTimeTick(Date.now());
+    }, 60000);
+
+    return () => clearInterval(timer);
   }, []);
 
   useEffect(() => {
@@ -238,7 +277,6 @@ export default function HomeScreen() {
       locality,
       address.state || address.state_district,
       address.postcode,
-      address.country,
     ].filter(Boolean);
 
     if (parts.length > 0) {
@@ -532,6 +570,112 @@ export default function HomeScreen() {
     }
   };
 
+  const handleCreateSearch = async (pet: PetRecord) => {
+    const petId = pet.docId || pet.id;
+    const ownerId = pet.OwnerID || user?.id;
+    const userLocation = user?.location;
+
+    if (!petId) {
+      Alert.alert('Missing pet', 'Pet record is missing its id.');
+      return;
+    }
+
+    if (!ownerId) {
+      Alert.alert('Missing owner', 'User account is not loaded yet.');
+      return;
+    }
+
+    if (!userLocation?.latitude || !userLocation?.longitude) {
+      Alert.alert('Missing location', 'Set your profile location before creating a search.');
+      return;
+    }
+
+    try {
+      setCreatingSearchPetId(petId);
+      const createdSearch = await createSearch(db, {
+        petId,
+        ownerId,
+        location: {
+          latitude: userLocation.latitude,
+          longitude: userLocation.longitude,
+        },
+        radius: 5,
+      });
+
+      setUser((prev: any) => ({
+        ...prev,
+        YourSearches: [...(Array.isArray(prev?.YourSearches) ? prev.YourSearches : []), createdSearch.id],
+      }));
+      setActiveSearchesByPet((prev) => ({
+        ...prev,
+        [petId]: {
+          ...createdSearch,
+          petID: createdSearch.PetID,
+          status: createdSearch.Status,
+          pet: {
+            id: petId,
+            Name: pet.Name ?? '',
+            Breed: pet.Breed ?? '',
+            Color: pet.Color ?? [],
+            Size: pet.Size ?? '',
+            Image: pet.Image ?? null,
+            ImageType: pet.ImageType ?? '',
+          },
+        },
+      }));
+      Alert.alert('Search created', `Created a new search for ${pet.Name ?? 'this pet'}.`);
+      router.push('/(tabs)/searches' as any);
+    } catch (error: any) {
+      Alert.alert('Create search failed', error?.message || 'Unable to create search right now.');
+    } finally {
+      setCreatingSearchPetId(null);
+    }
+  };
+
+  const openSearchDetails = (searchId?: string) => {
+    if (!searchId) {
+      Alert.alert('Search unavailable', 'Could not find that search.');
+      return;
+    }
+
+    router.push({ pathname: '/search/[id]', params: { id: searchId } } as any);
+  };
+
+  const formatTimeSinceSearch = (searchDate: any) => {
+    if (!searchDate) {
+      return 'Search active';
+    }
+
+    let timestampMs = 0;
+    if (typeof searchDate?.toDate === 'function') {
+      timestampMs = searchDate.toDate().getTime();
+    } else if (searchDate instanceof Date) {
+      timestampMs = searchDate.getTime();
+    } else if (typeof searchDate === 'number') {
+      timestampMs = searchDate;
+    } else {
+      const parsed = new Date(searchDate).getTime();
+      timestampMs = Number.isFinite(parsed) ? parsed : 0;
+    }
+
+    if (!timestampMs) {
+      return 'Search active';
+    }
+
+    const elapsedMinutes = Math.max(0, Math.floor((relativeTimeTick - timestampMs) / 60000));
+    if (elapsedMinutes < 60) {
+      return `${Math.max(1, elapsedMinutes)}m active`;
+    }
+
+    const elapsedHours = Math.floor(elapsedMinutes / 60);
+    if (elapsedHours < 24) {
+      return `${elapsedHours}h active`;
+    }
+
+    const elapsedDays = Math.floor(elapsedHours / 24);
+    return `${elapsedDays}d active`;
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.appHeader}>
@@ -711,8 +855,19 @@ export default function HomeScreen() {
 
             {pets.map((pet: PetRecord) => (
               <View key={pet.id} style={styles.petCard}>
+                {activeSearchesByPet[pet.docId || pet.id || ''] && (
+                  <View style={styles.activeSearchBadge}>
+                    <IconSymbol size={16} name="magnifyingglass" color="#ffffff" />
+                  </View>
+                )}
+
                 <View style={styles.petCardHeader}>
                   <ThemedText style={styles.petName}>{pet.Name}</ThemedText>
+                  {activeSearchesByPet[pet.docId || pet.id || '']?.Date || activeSearchesByPet[pet.docId || pet.id || '']?.date ? (
+                    <ThemedText style={styles.activeSearchTime}>
+                      {formatTimeSinceSearch(activeSearchesByPet[pet.docId || pet.id || '']?.Date ?? activeSearchesByPet[pet.docId || pet.id || '']?.date)}
+                    </ThemedText>
+                  ) : null}
                 </View>
 
                 <View style={styles.petCardRow}>
@@ -739,9 +894,15 @@ export default function HomeScreen() {
                   </View>
                 </View>
 
-                <TouchableOpacity style={styles.createSearchButton} onPress={() => {}}>
-                  <ThemedText style={styles.createSearchButtonText}>Create Search</ThemedText>
+                <TouchableOpacity style={styles.createSearchButton} onPress={() => handleCreateSearch(pet)} disabled={creatingSearchPetId === (pet.docId || pet.id)}>
+                  <ThemedText style={styles.createSearchButtonText}>{creatingSearchPetId === (pet.docId || pet.id) ? 'Creating...' : 'Create Search'}</ThemedText>
                 </TouchableOpacity>
+
+                {activeSearchesByPet[pet.docId || pet.id || ''] && (
+                  <TouchableOpacity style={styles.openSearchButton} onPress={() => openSearchDetails(activeSearchesByPet[pet.docId || pet.id || '']?.id)}>
+                    <ThemedText style={styles.openSearchButtonText}>Open Search</ThemedText>
+                  </TouchableOpacity>
+                )}
 
                 <View style={styles.petCardActions}>
                   <TouchableOpacity style={styles.editButtonSmall} onPress={() => openEditModal(pet)}>
@@ -903,9 +1064,27 @@ const styles = StyleSheet.create({
     backgroundColor: '#BFCECF',
     borderWidth: 1,
     borderColor: '#7a8a8f',
+    position: 'relative',
+  },
+  activeSearchBadge: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#0a5df0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 2,
   },
   petCardHeader: {
     marginBottom: 8,
+  },
+  activeSearchTime: {
+    fontSize: 12,
+    color: '#0a5df0',
+    fontWeight: '700',
   },
   petCardRow: {
     flexDirection: 'row',
@@ -943,6 +1122,18 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   createSearchButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+  openSearchButton: {
+    backgroundColor: '#0a5df0',
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+    borderRadius: 8,
+    alignSelf: 'center',
+    marginTop: 10,
+  },
+  openSearchButtonText: {
     color: '#fff',
     fontWeight: 'bold',
   },

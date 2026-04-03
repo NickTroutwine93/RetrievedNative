@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Image, LayoutChangeEvent, PanResponder, Platform, StyleSheet, View, ViewStyle } from 'react-native';
+import { IconSymbol } from './ui/icon-symbol';
 
 type Coordinate = {
   latitude: number;
@@ -13,6 +14,10 @@ type Props = {
   zoom?: number;
   styleId?: string;
   containerStyle?: ViewStyle;
+  radiusFillColor?: string;
+  radiusBorderColor?: string;
+  centerMarker?: 'dot' | 'house';
+  centerMarkerColor?: string;
 };
 
 const TILE_SIZE = 256;
@@ -73,6 +78,10 @@ export function MapTilerTileMap({
   zoom = 12,
   styleId = 'streets-v4',
   containerStyle,
+  radiusFillColor = 'rgba(0, 102, 255, 0.20)',
+  radiusBorderColor = 'rgba(0, 102, 255, 0.75)',
+  centerMarker = 'dot',
+  centerMarkerColor = '#0a5df0',
 }: Props) {
   const containerRef = useRef<any>(null);
   const [layout, setLayout] = useState({ width: 320, height: 240 });
@@ -386,12 +395,20 @@ export function MapTilerTileMap({
             borderRadius: radiusPixelSize * pinchScale,
             left: overlayCenter.x,
             top: overlayCenter.y,
+            borderColor: radiusBorderColor,
+            backgroundColor: radiusFillColor,
             transform: [{ translateX: -radiusPixelSize * pinchScale }, { translateY: -radiusPixelSize * pinchScale }],
           },
         ]}
       />
 
-      <View style={[styles.centerDot, { left: overlayCenter.x, top: overlayCenter.y }]} />
+      {centerMarker === 'house' ? (
+        <View style={[styles.centerIconContainer, { left: overlayCenter.x, top: overlayCenter.y }]}>
+          <IconSymbol size={18} name="house.fill" color={centerMarkerColor} />
+        </View>
+      ) : (
+        <View style={[styles.centerDot, { left: overlayCenter.x, top: overlayCenter.y, backgroundColor: centerMarkerColor }]} />
+      )}
     </View>
   );
 }
@@ -412,8 +429,6 @@ const styles = StyleSheet.create({
   radiusCircle: {
     position: 'absolute',
     borderWidth: 2,
-    borderColor: 'rgba(0, 102, 255, 0.75)',
-    backgroundColor: 'rgba(0, 102, 255, 0.20)',
   },
   centerDot: {
     position: 'absolute',
@@ -422,8 +437,12 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     marginLeft: -6,
     marginTop: -6,
-    backgroundColor: '#0a5df0',
     borderWidth: 2,
     borderColor: '#ffffff',
+  },
+  centerIconContainer: {
+    position: 'absolute',
+    marginLeft: -9,
+    marginTop: -9,
   },
 });

@@ -1,4 +1,39 @@
-import { collection, query, where, getDocs, doc, updateDoc, getDoc, addDoc, GeoPoint } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, updateDoc, getDoc, addDoc, GeoPoint, arrayUnion } from 'firebase/firestore';
+
+function mapPetRecord(petDoc) {
+  if (!petDoc?.exists()) {
+    return null;
+  }
+
+  const petData = petDoc.data();
+  return {
+    id: petDoc.id,
+    Name: petData.Name ?? petData.name ?? '',
+    Breed: petData.Breed ?? petData.breed ?? '',
+    Color: petData.Color ?? petData.color ?? [],
+    Size: petData.Size ?? petData.size ?? '',
+    Image: petData.Image ?? petData.image ?? null,
+    ImageType: petData.ImageType ?? petData.imageType ?? '',
+  };
+}
+
+async function hydrateSearchRecord(db, searchDoc) {
+  const data = searchDoc.data();
+  const petId = data.PetID ?? data.petID;
+  const petDoc = petId ? await getDoc(doc(db, 'pets', petId)) : null;
+
+  return {
+    id: searchDoc.id,
+    ...data,
+    date: data.Date ?? data.date,
+    status: data.Status ?? data.status,
+    owner: data.OwnerID ?? data.owner,
+    petID: petId,
+    created: data.created,
+    lastUpdated: data.lastUpdated,
+    pet: mapPetRecord(petDoc),
+  };
+}
 
 export async function getUserData(db, email) {
   try {
@@ -143,7 +178,6 @@ export async function getUserPets(db, ownerId) {
 
 export async function getUserSearches(db, email) {
   try {
-    // First, get the user to find their ID
     const userQuery = query(collection(db, 'accounts'), where('Email', '==', email));
     const userSnapshot = await getDocs(userQuery);
     
@@ -152,45 +186,127 @@ export async function getUserSearches(db, email) {
       return [];
     }
 
-    const userId = userSnapshot.docs[0].id;
+    const userDoc = userSnapshot.docs[0];
+    const userId = userDoc.id;
 
-    // Then get searches where user is in searchersID array
-    const searchQuery = query(
-      collection(db, 'searches'),
-      where('searchersID', 'array-contains', userId)
-    );
+    const searchQuery = query(collection(db, 'searches'), where('OwnerID', '==', userId));
     const searchSnapshot = await getDocs(searchQuery);
 
-    return searchSnapshot.docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-      status: doc.data().status,
-      owner: doc.data().owner,
-      petID: doc.data().petID,
-      created: doc.data().created,
-      lastUpdated: doc.data().lastUpdated,
-    }));
+    const activeSearchDocs = searchSnapshot.docs.filter((searchDoc) => {
+      const data = searchDoc.data();
+      const status = data.Status ?? data.status;
+      return status === 1;
+    });
+
+    const searchDocs = await Promise.all(activeSearchDocs.map((searchDoc) => hydrateSearchRecord(db, searchDoc)));
+
+    return searchDocs;
   } catch (error) {
     console.error('Error fetching user searches:', error);
     throw error;
   }
 }
 
+export async function createSearch(db, searchData) {
+  try {
+    if (!searchData?.petId) {
+      throw new Error('PetID is required to create a search.');
+    }
+
+    if (!searchData?.ownerId) {
+      throw new Error('OwnerID is required to create a search.');
+    }
+
+    const sourceLocation = searchData.location;
+    if (!sourceLocation?.latitude || !sourceLocation?.longitude) {
+      throw new Error('A valid user location is required to create a search.');
+    }
+
+    const existingSearches = await getDocs(
+      query(
+        collection(db, 'searches'),
+        where('PetID', '==', searchData.petId),
+        where('OwnerID', '==', searchData.ownerId)
+      )
+    );
+
+    const hasActiveDuplicate = existingSearches.docs.some((existingDoc) => {
+      const data = existingDoc.data();
+      const status = data.Status ?? data.status;
+      return status === 1;
+    });
+
+    if (hasActiveDuplicate) {
+      throw new Error('An active search already exists for this pet.');
+    }
+
+    const searchLocation = new GeoPoint(sourceLocation.latitude, sourceLocation.longitude);
+    const createdAt = new Date();
+    const searchDoc = await addDoc(collection(db, 'searches'), {
+      PetID: searchData.petId,
+      OwnerID: searchData.ownerId,
+      Location: searchLocation,
+      Date: createdAt,
+      Radius: Number(searchData.radius) || 5,
+      Sightings: [],
+      Searchers: [],
+      Status: 1,
+      Successfull: 0,
+      Tipped: [],
+    });
+
+    await updateDoc(doc(db, 'accounts', searchData.ownerId), {
+      YourSearches: arrayUnion(searchDoc.id),
+    });
+
+    return {
+      id: searchDoc.id,
+      PetID: searchData.petId,
+      OwnerID: searchData.ownerId,
+      Location: searchLocation,
+      Date: createdAt,
+      Radius: Number(searchData.radius) || 5,
+      Sightings: [],
+      Searchers: [],
+      Status: 1,
+      Successfull: 0,
+      Tipped: [],
+    };
+  } catch (error) {
+    console.error('Error creating search:', error);
+    throw error;
+  }
+}
+
 export async function getSearchById(db, searchId) {
   try {
-    const q = query(collection(db, 'searches'), where('__name__', '==', searchId));
-    const snapshot = await getDocs(q);
-
-    if (snapshot.empty) {
+    const searchDoc = await getDoc(doc(db, 'searches', searchId));
+    if (!searchDoc.exists()) {
       return null;
     }
 
-    return {
-      id: snapshot.docs[0].id,
-      ...snapshot.docs[0].data(),
-    };
+    return hydrateSearchRecord(db, searchDoc);
   } catch (error) {
     console.error('Error fetching search by ID:', error);
+    throw error;
+  }
+}
+
+export async function endSearch(db, searchId, wasSuccessful) {
+  try {
+    const searchDoc = doc(db, 'searches', searchId);
+    const successValue = wasSuccessful ? 1 : 0;
+
+    await updateDoc(searchDoc, {
+      Status: 0,
+      status: 0,
+      Successful: successValue,
+      Successfull: successValue,
+    });
+
+    return true;
+  } catch (error) {
+    console.error('Error ending search:', error);
     throw error;
   }
 }
