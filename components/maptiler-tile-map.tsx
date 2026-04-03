@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Image, LayoutChangeEvent, PanResponder, Platform, StyleSheet, View, ViewStyle } from 'react-native';
 import { IconSymbol } from './ui/icon-symbol';
+import { ThemedText } from './themed-text';
 
 type Coordinate = {
   latitude: number;
@@ -18,6 +19,11 @@ type Props = {
   radiusBorderColor?: string;
   centerMarker?: 'dot' | 'house';
   centerMarkerColor?: string;
+  markers?: Array<{
+    latitude: number;
+    longitude: number;
+    label: string;
+  }>;
 };
 
 const TILE_SIZE = 256;
@@ -82,6 +88,7 @@ export function MapTilerTileMap({
   radiusBorderColor = 'rgba(0, 102, 255, 0.75)',
   centerMarker = 'dot',
   centerMarkerColor = '#0a5df0',
+  markers = [],
 }: Props) {
   const containerRef = useRef<any>(null);
   const [layout, setLayout] = useState({ width: 320, height: 240 });
@@ -206,6 +213,37 @@ export function MapTilerTileMap({
 
     return nextTiles;
   }, [apiKey, layout.height, layout.width, panOffset.x, panOffset.y, styleId, tileZoom, viewCenter]);
+
+  const markerPositions = useMemo(() => {
+    if (!isValidCenter(viewCenter) || !Array.isArray(markers) || markers.length === 0) {
+      return [] as Array<{ key: string; x: number; y: number; label: string }>;
+    }
+
+    const worldTiles = Math.pow(2, tileZoom);
+    const viewTileX = longitudeToTileX(viewCenter.longitude, tileZoom);
+    const viewTileY = latitudeToTileY(viewCenter.latitude, tileZoom);
+
+    return markers
+      .filter((marker) => Number.isFinite(marker.latitude) && Number.isFinite(marker.longitude) && marker.label)
+      .map((marker, index) => {
+        const markerTileX = longitudeToTileX(marker.longitude, tileZoom);
+        const markerTileY = latitudeToTileY(marker.latitude, tileZoom);
+
+        let deltaTileX = markerTileX - viewTileX;
+        if (deltaTileX > worldTiles / 2) {
+          deltaTileX -= worldTiles;
+        } else if (deltaTileX < -worldTiles / 2) {
+          deltaTileX += worldTiles;
+        }
+
+        return {
+          key: `marker-${index}-${marker.label}`,
+          x: layout.width / 2 + deltaTileX * TILE_SIZE + panOffset.x,
+          y: layout.height / 2 + (markerTileY - viewTileY) * TILE_SIZE + panOffset.y,
+          label: marker.label,
+        };
+      });
+  }, [layout.height, layout.width, markers, panOffset.x, panOffset.y, tileZoom, viewCenter]);
 
   const calculateTouchDistance = (touches: Array<{ pageX: number; pageY: number }>) => {
     if (touches.length < 2) {
@@ -409,6 +447,12 @@ export function MapTilerTileMap({
       ) : (
         <View style={[styles.centerDot, { left: overlayCenter.x, top: overlayCenter.y, backgroundColor: centerMarkerColor }]} />
       )}
+
+      {markerPositions.map((marker) => (
+        <View key={marker.key} style={[styles.numberMarker, { left: marker.x, top: marker.y }]}>
+          <ThemedText style={styles.numberMarkerText}>{marker.label}</ThemedText>
+        </View>
+      ))}
     </View>
   );
 }
@@ -444,5 +488,24 @@ const styles = StyleSheet.create({
     position: 'absolute',
     marginLeft: -9,
     marginTop: -9,
+  },
+  numberMarker: {
+    position: 'absolute',
+    width: 22,
+    height: 22,
+    marginLeft: -11,
+    marginTop: -11,
+    borderRadius: 11,
+    backgroundColor: '#0a5df0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#ffffff',
+  },
+  numberMarkerText: {
+    color: '#ffffff',
+    fontSize: 11,
+    fontWeight: '700',
+    lineHeight: 14,
   },
 });

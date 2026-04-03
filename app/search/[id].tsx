@@ -190,6 +190,17 @@ export default function SearchDetailScreen() {
                 </View>
               )}
             </View>
+
+            <View style={styles.searchersSection}>
+              <ThemedText type="subtitle" style={styles.sectionTitle}>Joined Searchers</ThemedText>
+              {Array.isArray(search?.searcherNames) && search.searcherNames.length > 0 ? (
+                search.searcherNames.map((name: string, index: number) => (
+                  <ThemedText key={`${name}-${index}`} style={styles.searcherNameText}>{index + 1}. {name}</ThemedText>
+                ))
+              ) : (
+                <ThemedText style={styles.placeholderText}>No one has joined this search yet.</ThemedText>
+              )}
+            </View>
           </>
         ) : null}
       </ScrollView>
@@ -277,6 +288,18 @@ const styles = StyleSheet.create({
   },
   mapSection: {
     gap: 10,
+  },
+  searchersSection: {
+    gap: 8,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#c6d4e0',
+    backgroundColor: '#f5f9fd',
+  },
+  searcherNameText: {
+    fontSize: 14,
+    color: '#1d3348',
   },
   sectionTitle: {
     fontSize: 20,

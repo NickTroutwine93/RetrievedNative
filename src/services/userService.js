@@ -21,6 +21,27 @@ async function hydrateSearchRecord(db, searchDoc) {
   const data = searchDoc.data();
   const petId = data.PetID ?? data.petID;
   const petDoc = petId ? await getDoc(doc(db, 'pets', petId)) : null;
+  const rawSearchers = Array.isArray(data.Searchers)
+    ? data.Searchers
+    : Array.isArray(data.searchers)
+    ? data.searchers
+    : [];
+  const searcherIds = [...new Set(rawSearchers.filter(Boolean))];
+
+  const searcherNames = (
+    await Promise.all(
+      searcherIds.map(async (searcherId) => {
+        const accountDoc = await getDoc(doc(db, 'accounts', searcherId));
+        if (!accountDoc.exists()) {
+          return null;
+        }
+
+        const account = accountDoc.data();
+        const fullName = [account.FirstName, account.LastName].filter(Boolean).join(' ').trim();
+        return fullName || account.Email || searcherId;
+      })
+    )
+  ).filter(Boolean);
 
   return {
     id: searchDoc.id,
@@ -29,6 +50,8 @@ async function hydrateSearchRecord(db, searchDoc) {
     status: data.Status ?? data.status,
     owner: data.OwnerID ?? data.owner,
     petID: petId,
+    searchers: searcherIds,
+    searcherNames,
     created: data.created,
     lastUpdated: data.lastUpdated,
     pet: mapPetRecord(petDoc),
@@ -207,6 +230,23 @@ export async function getUserSearches(db, email) {
   }
 }
 
+export async function getActiveSearches(db) {
+  try {
+    const searchSnapshot = await getDocs(collection(db, 'searches'));
+    const activeSearchDocs = searchSnapshot.docs.filter((searchDoc) => {
+      const data = searchDoc.data();
+      const status = data.Status ?? data.status;
+      return status === 1;
+    });
+
+    const searchDocs = await Promise.all(activeSearchDocs.map((searchDoc) => hydrateSearchRecord(db, searchDoc)));
+    return searchDocs;
+  } catch (error) {
+    console.error('Error fetching active searches:', error);
+    throw error;
+  }
+}
+
 export async function createSearch(db, searchData) {
   try {
     if (!searchData?.petId) {
@@ -274,6 +314,34 @@ export async function createSearch(db, searchData) {
     };
   } catch (error) {
     console.error('Error creating search:', error);
+    throw error;
+  }
+}
+
+export async function joinSearch(db, searchId, email) {
+  try {
+    if (!searchId) {
+      throw new Error('Search id is required to join a search.');
+    }
+
+    if (!email) {
+      throw new Error('A signed-in user is required to join a search.');
+    }
+
+    const userQuery = query(collection(db, 'accounts'), where('Email', '==', email));
+    const userSnapshot = await getDocs(userQuery);
+    if (userSnapshot.empty) {
+      throw new Error('User account not found for this session.');
+    }
+
+    const userId = userSnapshot.docs[0].id;
+    await updateDoc(doc(db, 'searches', searchId), {
+      Searchers: arrayUnion(userId),
+    });
+
+    return userId;
+  } catch (error) {
+    console.error('Error joining search:', error);
     throw error;
   }
 }
