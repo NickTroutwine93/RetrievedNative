@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Image, LayoutChangeEvent, PanResponder, StyleSheet, View, ViewStyle } from 'react-native';
+import { Image, LayoutChangeEvent, PanResponder, Platform, StyleSheet, View, ViewStyle } from 'react-native';
 
 type Coordinate = {
   latitude: number;
@@ -75,8 +75,10 @@ export function MapTilerTileMap({
   containerStyle,
 }: Props) {
   const [layout, setLayout] = useState({ width: 320, height: 240 });
+  const [geoCenter, setGeoCenter] = useState(center);
   const [viewCenter, setViewCenter] = useState(center);
   const [zoomLevel, setZoomLevel] = useState(zoom);
+  const [hasUserZoomed, setHasUserZoomed] = useState(false);
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
   const [pinchScale, setPinchScale] = useState(1);
   const gestureModeRef = useRef<'none' | 'pan' | 'pinch'>('none');
@@ -84,11 +86,14 @@ export function MapTilerTileMap({
   const pinchStartZoomRef = useRef(zoom);
 
   useEffect(() => {
+    setGeoCenter(center);
     setViewCenter(center);
+    setHasUserZoomed(false);
   }, [center.latitude, center.longitude]);
 
   useEffect(() => {
     setZoomLevel(zoom);
+    setHasUserZoomed(false);
   }, [zoom]);
 
   const tileZoom = useMemo(() => {
@@ -102,22 +107,38 @@ export function MapTilerTileMap({
     const fitMetersPerPixel = radiusMeters / fitTargetRadiusPx;
     const fitZoom = zoomForMetersPerPixel(viewCenter.latitude, fitMetersPerPixel);
 
-    // Keep explicit/user zoom when it is zoomed out enough; otherwise auto-zoom out to fit radius.
-    const effectiveZoom = Math.min(zoomLevel, fitZoom);
+    // Before user interaction, auto-fit the circle in view. After interaction, honor user zoom.
+    const effectiveZoom = hasUserZoomed ? zoomLevel : Math.min(zoomLevel, fitZoom);
     return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.round(effectiveZoom)));
-  }, [layout.height, layout.width, radiusMiles, viewCenter, zoomLevel]);
+  }, [hasUserZoomed, layout.height, layout.width, radiusMiles, viewCenter, zoomLevel]);
 
   const radiusPixelSize = useMemo(() => {
-    if (!isValidCenter(viewCenter)) {
+    if (!isValidCenter(geoCenter)) {
       return 0;
     }
 
     const radiusMeters = milesToMeters(radiusMiles);
-    const mpp = metersPerPixel(viewCenter.latitude, tileZoom);
+    const mpp = metersPerPixel(geoCenter.latitude, tileZoom);
     const radiusPx = radiusMeters / Math.max(mpp, 0.0001);
     const clamped = Math.min(radiusPx, Math.min(layout.width, layout.height) / 2 - 12);
     return Math.max(8, clamped);
-  }, [layout.height, layout.width, radiusMiles, tileZoom, viewCenter]);
+  }, [geoCenter, layout.height, layout.width, radiusMiles, tileZoom]);
+
+  const overlayCenter = useMemo(() => {
+    if (!isValidCenter(geoCenter) || !isValidCenter(viewCenter)) {
+      return { x: layout.width / 2, y: layout.height / 2 };
+    }
+
+    const geoTileX = longitudeToTileX(geoCenter.longitude, tileZoom);
+    const geoTileY = latitudeToTileY(geoCenter.latitude, tileZoom);
+    const viewTileX = longitudeToTileX(viewCenter.longitude, tileZoom);
+    const viewTileY = latitudeToTileY(viewCenter.latitude, tileZoom);
+
+    return {
+      x: layout.width / 2 + (geoTileX - viewTileX) * TILE_SIZE + panOffset.x,
+      y: layout.height / 2 + (geoTileY - viewTileY) * TILE_SIZE + panOffset.y,
+    };
+  }, [geoCenter, layout.height, layout.width, panOffset.x, panOffset.y, tileZoom, viewCenter]);
 
   const tiles = useMemo(() => {
     if (!apiKey || !isValidCenter(viewCenter)) {
@@ -244,6 +265,7 @@ export function MapTilerTileMap({
           if (gestureModeRef.current === 'pinch') {
             const deltaZoom = Math.log2(Math.max(0.5, Math.min(3, pinchScale)));
             const nextZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, pinchStartZoomRef.current + deltaZoom));
+            setHasUserZoomed(true);
             setZoomLevel(nextZoom);
           } else if (gestureModeRef.current === 'pan') {
             commitPanToCenter(gestureState.dx, gestureState.dy);
@@ -264,6 +286,28 @@ export function MapTilerTileMap({
     [pinchScale, tileZoom, viewCenter, zoomLevel]
   );
 
+  const wheelHandlers = useMemo(() => {
+    if (Platform.OS !== 'web') {
+      return {};
+    }
+
+    return {
+      onWheelCapture: (event: any) => {
+        event?.preventDefault?.();
+        event?.stopPropagation?.();
+
+        const deltaY = event?.nativeEvent?.deltaY ?? event?.deltaY ?? 0;
+        if (!Number.isFinite(deltaY) || deltaY === 0) {
+          return;
+        }
+
+        const step = deltaY < 0 ? 0.35 : -0.35;
+        setHasUserZoomed(true);
+        setZoomLevel((prev) => Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, prev + step)));
+      },
+    };
+  }, []);
+
   const onLayout = (event: LayoutChangeEvent) => {
     const { width, height } = event.nativeEvent.layout;
     if (width > 0 && height > 0) {
@@ -272,7 +316,7 @@ export function MapTilerTileMap({
   };
 
   return (
-    <View style={[styles.container, containerStyle]} onLayout={onLayout} {...panResponder.panHandlers}>
+    <View style={[styles.container, containerStyle]} onLayout={onLayout} {...panResponder.panHandlers} {...(wheelHandlers as any)}>
       <View style={[styles.tilesLayer, { transform: [{ scale: pinchScale }] }]}>
         {tiles.map((tile) => (
           <Image
@@ -291,12 +335,14 @@ export function MapTilerTileMap({
             width: radiusPixelSize * 2,
             height: radiusPixelSize * 2,
             borderRadius: radiusPixelSize,
+            left: overlayCenter.x,
+            top: overlayCenter.y,
             transform: [{ translateX: -radiusPixelSize }, { translateY: -radiusPixelSize }],
           },
         ]}
       />
 
-      <View style={styles.centerDot} />
+      <View style={[styles.centerDot, { left: overlayCenter.x, top: overlayCenter.y }]} />
     </View>
   );
 }
@@ -316,16 +362,12 @@ const styles = StyleSheet.create({
   },
   radiusCircle: {
     position: 'absolute',
-    top: '50%',
-    left: '50%',
     borderWidth: 2,
     borderColor: 'rgba(0, 102, 255, 0.75)',
     backgroundColor: 'rgba(0, 102, 255, 0.20)',
   },
   centerDot: {
     position: 'absolute',
-    top: '50%',
-    left: '50%',
     width: 12,
     height: 12,
     borderRadius: 6,
