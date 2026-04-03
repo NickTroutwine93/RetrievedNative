@@ -1,4 +1,4 @@
-import { collection, query, where, getDocs, doc, updateDoc, deleteDoc, addDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, updateDoc, getDoc, addDoc } from 'firebase/firestore';
 
 export async function getUserData(db, email) {
   try {
@@ -12,8 +12,8 @@ export async function getUserData(db, email) {
 
     const doc = snapshot.docs[0];
     return {
-      id: doc.id,
       ...doc.data(),
+      id: doc.id,
       firstName: doc.data().FirstName,
       radius: doc.data().Radius,
     };
@@ -23,29 +23,62 @@ export async function getUserData(db, email) {
   }
 }
 
+export async function createUserAccount(db, email, profile) {
+  try {
+    const accountDoc = await addDoc(collection(db, 'accounts'), {
+      AuthenticationAgent: 'Password',
+      Email: email,
+      FirstName: profile.firstName,
+      LastName: profile.lastName,
+      Radius: Number(profile.radius) || 5,
+      PetID: [],
+      ActiveSearches: [],
+      SearchHistory: [],
+      YourSearches: [],
+    });
+
+    return {
+      id: accountDoc.id,
+      Email: email,
+      FirstName: profile.firstName,
+      LastName: profile.lastName,
+      Radius: Number(profile.radius) || 5,
+    };
+  } catch (error) {
+    console.error('Error creating user account:', error);
+    throw error;
+  }
+}
+
 export async function getUserPets(db, ownerId) {
   try {
     const q = query(collection(db, 'pets'), where('OwnerID', '==', ownerId));
     const snapshot = await getDocs(q);
     
-    // Filter to only active pets (Status == 1 or undefined for existing pets)
+    // Filter to only active pets and support both Status/status field names.
     const activePets = snapshot.docs.filter((doc) => {
-      const status = doc.data().Status;
+      const data = doc.data();
+      const status = data.Status ?? data.status;
       return status === undefined || status === 1;
     });
     
-    return activePets.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-      name: doc.data().Name || doc.data().name,
-      type: doc.data().Type || doc.data().type,
-      breed: doc.data().Breed || doc.data().breed,
-      color: doc.data().Color || doc.data().color,
-      age: doc.data().Age || doc.data().age,
-      size: doc.data().Size || doc.data().size,
-      image: doc.data().Image || doc.data().image || null,
-      status: doc.data().Status || 1, // Default to active for existing pets
-    }));
+    return activePets.map((doc) => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        docId: doc.id,
+        OwnerID: data.OwnerID,
+        Name: data.Name ?? data.name ?? '',
+        Type: data.Type ?? data.type ?? '',
+        Breed: data.Breed ?? data.breed ?? '',
+        Color: data.Color ?? data.color ?? [],
+        Age: data.Age ?? data.age,
+        Size: data.Size ?? data.size ?? '',
+        Image: data.Image ?? data.image ?? null,
+        ImageType: data.ImageType ?? data.imageType ?? '',
+        Status: data.Status ?? data.status ?? 1,
+      };
+    });
   } catch (error) {
     console.error('Error fetching user pets:', error);
     throw error;
@@ -119,11 +152,27 @@ export async function updatePet(db, petId, updates) {  try {
 export async function deactivatePet(db, petId) {
   try {
     const petDoc = doc(db, 'pets', petId);
-    await updateDoc(petDoc, { Status: 0 });
+
+    const before = await getDoc(petDoc);
+    if (!before.exists()) {
+      throw new Error(`Pet document not found for id: ${petId}`);
+    }
+
+    await updateDoc(petDoc, { Status: 0, status: 0 });
+
+    // Confirm write so caller can surface a meaningful error if rules block updates.
+    const updated = await getDoc(petDoc);
+    const data = updated.data() || {};
+    if (!updated.exists() || (data.Status !== 0 && data.status !== 0)) {
+      throw new Error(`Deactivate verification failed for ${petId}. Current values => Status: ${String(data.Status)}, status: ${String(data.status)}`);
+    }
+
     return true;
   } catch (error) {
     console.error('Error deactivating pet:', error);
-    throw error;
+    const code = error?.code ? ` [${error.code}]` : '';
+    const message = error?.message || 'Unknown deactivate error';
+    throw new Error(`Failed to set Status to 0 for pet ${petId}${code}: ${message}`);
   }
 }
 
@@ -137,7 +186,8 @@ export async function addPet(db, ownerId, petData) {
       Size: petData.Size,
       Image: petData.Image,
       ImageType: petData.ImageType || '',
-      Status: 1, // Active by default
+      Status: 1,
+      status: 1,
     });
 
     return {
@@ -145,6 +195,7 @@ export async function addPet(db, ownerId, petData) {
       OwnerID: ownerId,
       ...petData,
       Status: 1,
+      status: 1,
     };
   } catch (error) {
     console.error('Error adding pet:', error);

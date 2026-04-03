@@ -4,13 +4,8 @@ import * as ImagePicker from 'expo-image-picker';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ThemedText } from '../../components/themed-text';
 import { ThemedView } from '../../components/themed-view';
-import { initializeApp } from 'firebase/app';
-import { getFirestore } from 'firebase/firestore';
-import { firebaseConfig } from '../../src/services/firebaseConfig';
-import { getUserData, getUserPets, updatePet, deactivatePet, addPet } from '../../src/services/userService';
-
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
+import { auth, db } from '../../src/services/firebaseClient';
+import { getUserData, getUserPets, updatePet, addPet, deactivatePet } from '../../src/services/userService';
 
 const petImageSources: Record<string, any> = {
   'Rigby.jpg': require('../../assets/pets/Rigby.jpg'),
@@ -31,11 +26,31 @@ export default function HomeScreen() {
   const [editImage, setEditImage] = useState('');
   const [editImageType, setEditImageType] = useState('');
   const [editImageUri, setEditImageUri] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showRemoveConfirm, setShowRemoveConfirm] = useState(false);
+
+  type PetRecord = {
+    id?: string;
+    docId?: string;
+    Name?: string;
+    Breed?: string;
+    Color?: string[] | string;
+    Size?: string;
+    Image?: string;
+    ImageType?: string;
+    Status?: number;
+  };
 
   useEffect(() => {
     async function loadUserData() {
       try {
-        const account = await getUserData(db, 'test@gmail.com');
+        const signedInEmail = auth.currentUser?.email;
+        if (!signedInEmail) {
+          setLoading(false);
+          return;
+        }
+
+        const account = await getUserData(db, signedInEmail);
         console.log('user account', account);
         setUser(account);
 
@@ -53,15 +68,16 @@ export default function HomeScreen() {
     loadUserData();
   }, []);
 
-  const openEditModal = (pet: any) => {
+  const openEditModal = (pet: PetRecord) => {
     setIsAddMode(false);
     setEditingPet(pet);
-    setEditName(pet.name ?? '');
-    setEditBreed(pet.breed ?? '');
-    setEditColor(Array.isArray(pet.color) ? pet.color.join(', ') : pet.color ?? '');
-    setEditSize(pet.size ?? '');
-    setEditImage(pet.image ?? '');
-    setEditImageType(pet.imageType ?? '');
+    setShowRemoveConfirm(false);
+    setEditName(pet.Name ?? '');
+    setEditBreed(pet.Breed ?? '');
+    setEditColor(Array.isArray(pet.Color) ? pet.Color.join(', ') : pet.Color ?? '');
+    setEditSize(pet.Size ?? '');
+    setEditImage(pet.Image ?? '');
+    setEditImageType(pet.ImageType ?? '');
     setEditImageUri('');
     setModalVisible(true);
   };
@@ -69,6 +85,7 @@ export default function HomeScreen() {
   const openAddModal = () => {
     setIsAddMode(true);
     setEditingPet(null);
+    setShowRemoveConfirm(false);
     setEditName('');
     setEditBreed('');
     setEditColor('');
@@ -83,6 +100,7 @@ export default function HomeScreen() {
     setModalVisible(false);
     setEditingPet(null);
     setIsAddMode(false);
+    setShowRemoveConfirm(false);
   };
 
   const pickImage = async () => {
@@ -98,7 +116,7 @@ export default function HomeScreen() {
       allowsEditing: true,
     });
 
-    if (!result.cancelled) {
+    if (!result.canceled) {
       const uri = (result as any).uri || (result as any).assets?.[0]?.uri;
       if (!uri) {
         Alert.alert('Error', 'Could not get image URI from picker result.');
@@ -113,7 +131,31 @@ export default function HomeScreen() {
     }
   };
 
+  const removePet = async (targetPet?: PetRecord) => {
+    const activePet = targetPet || editingPet;
+    const petDocId = activePet?.docId || activePet?.id;
+
+    if (!petDocId) {
+      Alert.alert('Error', 'Pet document id is missing, cannot remove this pet.');
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      await deactivatePet(db, petDocId);
+      setPets((prev: PetRecord[]) => prev.filter((pet) => (pet.docId || pet.id) !== petDocId));
+      closeEditModal();
+      Alert.alert('Deactivated', `${activePet?.Name ?? 'Pet'} has been removed from active pets.`);
+    } catch (error: any) {
+      console.error('Error removing pet:', error);
+      Alert.alert('Remove failed', error?.message || 'Unknown remove error.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const savePetChanges = async () => {
+    const petDocId = editingPet?.docId || editingPet?.id;
     const colorString = editColor || '';
     const colorArray = colorString
       .split(',')
@@ -130,49 +172,36 @@ export default function HomeScreen() {
     };
 
     try {
+      setIsSubmitting(true);
       if (isAddMode) {
         if (!user?.id) {
           Alert.alert('Error', 'User account not loaded');
           return;
         }
         const newPet = await addPet(db, user.id, updates);
-        setPets((prev) => [...prev, { ...newPet, name: editName, breed: editBreed, color: updates.Color, size: editSize, image: editImage }] );
-      } else if (editingPet) {
-        await updatePet(db, editingPet.id, updates);
-        setPets((prev) => prev.map((pet: any) => (pet.id === editingPet.id ? { ...pet, ...updates, name: editName, breed: editBreed, color: updates.Color, size: editSize, image: editImage } : pet)));
+        setPets((prev: PetRecord[]) => [...prev, { ...newPet, Name: editName, Breed: editBreed, Color: updates.Color, Size: editSize, Image: editImage, ImageType: editImageType, Status: 1 }]);
+      } else if (editingPet && petDocId) {
+        await updatePet(db, petDocId, updates);
+        setPets((prev: PetRecord[]) => prev.map((pet) => ((pet.docId || pet.id) === petDocId ? { ...pet, ...updates, Name: editName, Breed: editBreed, Color: updates.Color, Size: editSize, Image: editImage, ImageType: editImageType } : pet)));
       }
       closeEditModal();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error saving pet changes:', error);
+      Alert.alert('Save failed', error?.message || 'Unknown save error.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  const confirmDeletePet = (pet: any) => {
-    Alert.alert(
-      'Confirm remove',
-      `Are you sure you want to remove ${pet.name} from active pets?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Remove',
-          style: 'destructive',
-          onPress: () => removePet(pet),
-        },
-      ],
-      { cancelable: true }
-    );
-  };
+  const confirmDeletePet = (pet?: PetRecord) => {
+    const activePet = pet || editingPet;
 
-  const removePet = async (pet: any) => {
-    try {
-      await deactivatePet(db, pet.id);
-      setPets((prev) => prev.filter((p: any) => p.id !== pet.id));
-      if (editingPet?.id === pet.id) closeEditModal();
-      Alert.alert('Deactivated', `${pet.name} has been removed from active pets.`);
-    } catch (error) {
-      console.error('Error removing pet:', error);
-      Alert.alert('Error', 'Unable to remove pet. Check console for details.');
+    if (!activePet) {
+      Alert.alert('Error', 'No pet selected for removal.');
+      return;
     }
+
+    setShowRemoveConfirm(true);
   };
 
   return (
@@ -204,17 +233,32 @@ export default function HomeScreen() {
             ) : null}
 
             <View style={styles.modalActions}>
-              <TouchableOpacity style={styles.saveButton} onPress={savePetChanges}>
-                <ThemedText style={styles.saveButtonText}>{isAddMode ? 'Add' : 'Save'}</ThemedText>
+              <TouchableOpacity style={styles.saveButton} onPress={savePetChanges} disabled={isSubmitting}>
+                <ThemedText style={styles.saveButtonText}>{isSubmitting ? 'Working...' : isAddMode ? 'Add' : 'Save'}</ThemedText>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.cancelButton} onPress={closeEditModal}>
+              <TouchableOpacity style={styles.cancelButton} onPress={closeEditModal} disabled={isSubmitting}>
                 <ThemedText style={styles.cancelButtonText}>Dismiss</ThemedText>
               </TouchableOpacity>
             </View>
 
+            {showRemoveConfirm && !isAddMode && (
+              <View style={styles.confirmPanel}>
+                <ThemedText style={styles.confirmTitle}>Are you sure?</ThemedText>
+                <ThemedText style={styles.confirmBody}>Remove {editingPet?.Name ?? 'this pet'} from active pets?</ThemedText>
+                <View style={styles.confirmActions}>
+                  <TouchableOpacity style={styles.confirmCancelButton} onPress={() => setShowRemoveConfirm(false)} disabled={isSubmitting}>
+                    <ThemedText style={styles.confirmCancelText}>Cancel</ThemedText>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.confirmRemoveButton} onPress={() => removePet(editingPet)} disabled={isSubmitting}>
+                    <ThemedText style={styles.confirmRemoveText}>{isSubmitting ? 'Removing...' : 'Remove'}</ThemedText>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
             {!isAddMode && (
-              <TouchableOpacity style={styles.deleteButton} onPress={() => editingPet && confirmDeletePet(editingPet)}>
-                <ThemedText style={styles.deleteButtonText}>Remove from Active</ThemedText>
+              <TouchableOpacity style={styles.deleteButton} onPress={() => confirmDeletePet(editingPet)} disabled={isSubmitting}>
+                <ThemedText style={styles.deleteButtonText}>{isSubmitting ? 'Removing...' : 'Remove from Active'}</ThemedText>
               </TouchableOpacity>
             )}
           </View>
@@ -239,19 +283,19 @@ export default function HomeScreen() {
               </TouchableOpacity>
             </View>
 
-            {pets.map((pet: any) => (
+            {pets.map((pet: PetRecord) => (
               <View key={pet.id} style={styles.petCard}>
                 <View style={styles.petCardHeader}>
-                  <ThemedText style={styles.petName}>{pet.name}</ThemedText>
+                  <ThemedText style={styles.petName}>{pet.Name}</ThemedText>
                 </View>
 
                 <View style={styles.petCardRow}>
-                  {pet.image ? (
+                  {pet.Image ? (
                     <Image
                       source={
-                        pet.image.startsWith('http')
-                          ? { uri: pet.image }
-                          : petImageSources[pet.image] || require('../../assets/pets/Default.jpg')
+                        pet.Image.startsWith('http')
+                          ? { uri: pet.Image }
+                          : petImageSources[pet.Image] || require('../../assets/pets/Default.jpg')
                       }
                       style={styles.petImage}
                       resizeMode="cover"
@@ -263,9 +307,9 @@ export default function HomeScreen() {
                   )}
 
                   <View style={styles.petDetails}>
-                    <ThemedText>Breed: {pet.breed ?? 'Unknown'}</ThemedText>
-                    <ThemedText>Color: {Array.isArray(pet.color) ? pet.color.join(', ') : pet.color ?? 'Unknown'}</ThemedText>
-                    <ThemedText>Size: {pet.size ?? 'Unknown'}</ThemedText>
+                    <ThemedText>Breed: {pet.Breed ?? 'Unknown'}</ThemedText>
+                    <ThemedText>Color: {Array.isArray(pet.Color) ? pet.Color.join(', ') : pet.Color ?? 'Unknown'}</ThemedText>
+                    <ThemedText>Size: {pet.Size ?? 'Unknown'}</ThemedText>
                   </View>
                 </View>
 
@@ -328,14 +372,6 @@ const styles = StyleSheet.create({
   sectionTitle: {
     marginBottom: 12,
     marginTop: 8,
-  },
-  petCard: {
-    padding: 12,
-    marginBottom: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    backgroundColor: '#f9f9f9',
   },
   petName: {
     fontWeight: 'bold',
@@ -471,6 +507,10 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: 'bold',
   },
+  petCardActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-start',
+  },
   addRemoveButton: {
     marginTop: 8,
     backgroundColor: '#7a7a7a',
@@ -510,6 +550,53 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginTop: 10,
+  },
+  confirmPanel: {
+    marginTop: 12,
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E1B1B1',
+    backgroundColor: '#FFF3F3',
+  },
+  confirmTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 6,
+    color: '#7A1414',
+  },
+  confirmBody: {
+    fontSize: 14,
+    marginBottom: 10,
+    color: '#5E3333',
+  },
+  confirmActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  confirmCancelButton: {
+    flex: 1,
+    alignItems: 'center',
+    padding: 10,
+    borderRadius: 8,
+    backgroundColor: '#999',
+    marginRight: 5,
+  },
+  confirmCancelText: {
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+  confirmRemoveButton: {
+    flex: 1,
+    alignItems: 'center',
+    padding: 10,
+    borderRadius: 8,
+    backgroundColor: '#b00020',
+    marginLeft: 5,
+  },
+  confirmRemoveText: {
+    color: '#fff',
+    fontWeight: 'bold',
   },
   saveButton: {
     backgroundColor: '#0076C0',
