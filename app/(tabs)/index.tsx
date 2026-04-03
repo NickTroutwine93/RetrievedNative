@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { StyleSheet, ScrollView, View, Image, TouchableOpacity, Modal, TextInput, Alert } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import * as Location from 'expo-location';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ThemedText } from '../../components/themed-text';
 import { ThemedView } from '../../components/themed-view';
 import { auth, db } from '../../src/services/firebaseClient';
-import { getUserData, getUserPets, updatePet, addPet, deactivatePet } from '../../src/services/userService';
+import { getUserData, getUserPets, updatePet, addPet, deactivatePet, updateUserProfile } from '../../src/services/userService';
 
 const petImageSources: Record<string, any> = {
   'Rigby.jpg': require('../../assets/pets/Rigby.jpg'),
@@ -28,6 +29,20 @@ export default function HomeScreen() {
   const [editImageUri, setEditImageUri] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showRemoveConfirm, setShowRemoveConfirm] = useState(false);
+  const [profileModalVisible, setProfileModalVisible] = useState(false);
+  const [profileFirstName, setProfileFirstName] = useState('');
+  const [profileLastName, setProfileLastName] = useState('');
+  const [profileRadius, setProfileRadius] = useState('5');
+  const [profileAddress, setProfileAddress] = useState('');
+  const [profileAddressTouched, setProfileAddressTouched] = useState(false);
+  const [profileGeocodedAddress, setProfileGeocodedAddress] = useState('');
+  const [profileAddressError, setProfileAddressError] = useState('');
+  const [profileAddressSuggestions, setProfileAddressSuggestions] = useState<Array<{ displayName: string; latitude: number; longitude: number }>>([]);
+  const [isSearchingAddress, setIsSearchingAddress] = useState(false);
+  const [addressGuidanceText, setAddressGuidanceText] = useState('');
+  const [isGeocodingAddress, setIsGeocodingAddress] = useState(false);
+  const [profileCoordinates, setProfileCoordinates] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
 
   type PetRecord = {
     id?: string;
@@ -39,6 +54,17 @@ export default function HomeScreen() {
     Image?: string;
     ImageType?: string;
     Status?: number;
+  };
+
+  type UserLocation = {
+    latitude: number;
+    longitude: number;
+  };
+
+  type AddressSuggestion = {
+    displayName: string;
+    latitude: number;
+    longitude: number;
   };
 
   useEffect(() => {
@@ -68,6 +94,48 @@ export default function HomeScreen() {
     loadUserData();
   }, []);
 
+  useEffect(() => {
+    if (!profileModalVisible) {
+      setProfileAddressSuggestions([]);
+      setIsSearchingAddress(false);
+      setAddressGuidanceText('');
+      return;
+    }
+
+    const queryText = profileAddress.trim();
+    if (!profileAddressTouched || queryText.length < 3) {
+      setProfileAddressSuggestions([]);
+      setIsSearchingAddress(false);
+      if (profileAddressTouched && queryText.length > 0 && queryText.length < 3) {
+        setAddressGuidanceText('Keep typing: include street number, street name, city, and state/province.');
+      } else {
+        setAddressGuidanceText('');
+      }
+      return;
+    }
+
+    const debounceHandle = setTimeout(async () => {
+      try {
+        setIsSearchingAddress(true);
+        const suggestions = await lookupAddressSuggestions(queryText);
+        setProfileAddressSuggestions(suggestions);
+
+        if (suggestions.length === 0) {
+          setAddressGuidanceText('No matches yet. Try a more specific address: house number + street + city + state/province (+ postal code).');
+        } else {
+          setAddressGuidanceText('');
+        }
+      } catch {
+        setProfileAddressSuggestions([]);
+        setAddressGuidanceText('Address search is unavailable right now. Enter a full address and use Save to geocode it.');
+      } finally {
+        setIsSearchingAddress(false);
+      }
+    }, 350);
+
+    return () => clearTimeout(debounceHandle);
+  }, [profileAddress, profileAddressTouched, profileModalVisible]);
+
   const openEditModal = (pet: PetRecord) => {
     setIsAddMode(false);
     setEditingPet(pet);
@@ -80,6 +148,20 @@ export default function HomeScreen() {
     setEditImageType(pet.ImageType ?? '');
     setEditImageUri('');
     setModalVisible(true);
+  };
+
+  const openProfileModal = () => {
+    setProfileFirstName(user?.firstName ?? user?.FirstName ?? '');
+    setProfileLastName(user?.lastName ?? user?.LastName ?? '');
+    setProfileRadius(String(user?.radius ?? user?.Radius ?? 5));
+    setProfileAddress('');
+    setProfileAddressTouched(false);
+    setProfileGeocodedAddress('');
+    setProfileAddressError('');
+    setProfileAddressSuggestions([]);
+    setAddressGuidanceText('');
+    setProfileCoordinates(user?.location ? { latitude: user.location.latitude, longitude: user.location.longitude } : null);
+    setProfileModalVisible(true);
   };
 
   const openAddModal = () => {
@@ -101,6 +183,99 @@ export default function HomeScreen() {
     setEditingPet(null);
     setIsAddMode(false);
     setShowRemoveConfirm(false);
+  };
+
+  const closeProfileModal = () => {
+    setProfileModalVisible(false);
+    setProfileFirstName('');
+    setProfileLastName('');
+    setProfileRadius('5');
+    setProfileAddress('');
+    setProfileAddressTouched(false);
+    setProfileGeocodedAddress('');
+    setProfileAddressError('');
+    setProfileAddressSuggestions([]);
+    setAddressGuidanceText('');
+    setProfileCoordinates(null);
+  };
+
+  const geocodeAddress = async (addressText: string): Promise<UserLocation | null> => {
+    const geocodeResults = await Location.geocodeAsync(addressText);
+    const firstMatch = geocodeResults[0];
+
+    if (!firstMatch) {
+      return null;
+    }
+
+    return {
+      latitude: firstMatch.latitude,
+      longitude: firstMatch.longitude,
+    };
+  };
+
+  const lookupAddressSuggestions = async (queryText: string): Promise<AddressSuggestion[]> => {
+    const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=5&q=${encodeURIComponent(queryText)}`;
+    const response = await fetch(url, {
+      headers: {
+        Accept: 'application/json',
+        'User-Agent': 'RetrievedNative/1.0',
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Address search failed with status ${response.status}`);
+    }
+
+    const json = await response.json();
+    if (!Array.isArray(json)) {
+      return [];
+    }
+
+    return json
+      .map((item: any) => ({
+        displayName: item.display_name,
+        latitude: Number(item.lat),
+        longitude: Number(item.lon),
+      }))
+      .filter((item: AddressSuggestion) => Number.isFinite(item.latitude) && Number.isFinite(item.longitude) && item.displayName);
+  };
+
+  const selectAddressSuggestion = (suggestion: AddressSuggestion) => {
+    setProfileAddress(suggestion.displayName);
+    setProfileAddressTouched(true);
+    setProfileGeocodedAddress(suggestion.displayName);
+    setProfileAddressSuggestions([]);
+    setAddressGuidanceText('');
+    setProfileAddressError('');
+    setProfileCoordinates({
+      latitude: suggestion.latitude,
+      longitude: suggestion.longitude,
+    });
+  };
+
+  const previewTypedAddress = async () => {
+    const trimmedAddress = profileAddress.trim();
+    if (!profileAddressTouched || trimmedAddress.length === 0) {
+      return;
+    }
+
+    try {
+      setIsGeocodingAddress(true);
+      const resolvedLocation = await geocodeAddress(trimmedAddress);
+
+      if (!resolvedLocation) {
+        setProfileAddressError('Could not find that address. Please enter a more complete address.');
+        return;
+      }
+
+      setProfileCoordinates(resolvedLocation);
+      setProfileGeocodedAddress(trimmedAddress);
+      setProfileAddressError('');
+    } catch (error: any) {
+      setProfileAddressError(error?.message || 'Address lookup failed. Please try again.');
+    } finally {
+      setIsGeocodingAddress(false);
+    }
   };
 
   const pickImage = async () => {
@@ -204,6 +379,114 @@ export default function HomeScreen() {
     setShowRemoveConfirm(true);
   };
 
+  const useCurrentLocation = async () => {
+    try {
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert('Permission required', 'Location permission is required to use your current location.');
+        return;
+      }
+
+      const currentPosition = await Location.getCurrentPositionAsync({});
+      const currentCoordinates = {
+        latitude: currentPosition.coords.latitude,
+        longitude: currentPosition.coords.longitude,
+      };
+
+      setProfileCoordinates(currentCoordinates);
+      setProfileGeocodedAddress('');
+      setProfileAddressError('');
+      setProfileAddressSuggestions([]);
+      setAddressGuidanceText('');
+
+      const reverseResults = await Location.reverseGeocodeAsync(currentCoordinates);
+      const firstAddress = reverseResults[0];
+      if (firstAddress) {
+        const parts = [
+          firstAddress.streetNumber,
+          firstAddress.street,
+          firstAddress.city,
+          firstAddress.region,
+          firstAddress.postalCode,
+        ].filter(Boolean);
+        setProfileAddress(parts.join(' '));
+      }
+    } catch (error: any) {
+      Alert.alert('Location unavailable', error?.message || 'Could not get your current location.');
+    }
+  };
+
+  const saveProfileChanges = async () => {
+    if (!user?.id) {
+      Alert.alert('Error', 'User account not loaded.');
+      return;
+    }
+
+    try {
+      setIsSavingProfile(true);
+
+      let nextLocation: UserLocation | null = profileCoordinates;
+
+      const wantsAddressUpdate = profileAddressTouched && profileAddress.trim().length > 0;
+
+      if (wantsAddressUpdate) {
+        const trimmedAddress = profileAddress.trim();
+        const resolvedLocation =
+          profileGeocodedAddress === trimmedAddress && profileCoordinates
+            ? profileCoordinates
+            : await geocodeAddress(trimmedAddress);
+
+        if (!resolvedLocation) {
+          setProfileAddressError('Could not find that address. Please enter a more complete address.');
+          Alert.alert('Address not found', 'Enter a complete address or use your current location.');
+          return;
+        }
+
+        nextLocation = resolvedLocation;
+        setProfileCoordinates(nextLocation);
+        setProfileGeocodedAddress(trimmedAddress);
+        setProfileAddressError('');
+      }
+
+      // Fall back to current saved location so Save always issues a profile update call.
+      if (!nextLocation && user?.location) {
+        nextLocation = {
+          latitude: user.location.latitude,
+          longitude: user.location.longitude,
+        };
+      }
+
+      if (!nextLocation) {
+        Alert.alert('Missing location', 'Enter an address or choose Use My Location before saving.');
+        return;
+      }
+
+      const savedProfile = await updateUserProfile(db, user.id, {
+        firstName: profileFirstName.trim() || user?.firstName || user?.FirstName || '',
+        lastName: profileLastName.trim() || user?.lastName || user?.LastName || '',
+        radius: Number(profileRadius) || user?.radius || user?.Radius || 5,
+        location: nextLocation,
+      });
+
+      setUser((prev: any) => ({
+        ...prev,
+        firstName: savedProfile.firstName ?? prev.firstName,
+        FirstName: savedProfile.firstName ?? prev.FirstName,
+        lastName: savedProfile.lastName ?? prev.lastName,
+        LastName: savedProfile.lastName ?? prev.LastName,
+        radius: savedProfile.radius ?? prev.radius,
+        Radius: savedProfile.radius ?? prev.Radius,
+        location: savedProfile.location ?? prev.location,
+      }));
+      closeProfileModal();
+      Alert.alert('Profile updated', 'Your profile changes have been saved.');
+    } catch (error: any) {
+      Alert.alert('Update failed', error?.message || 'Could not update your profile location.');
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.appHeader}>
@@ -265,6 +548,85 @@ export default function HomeScreen() {
         </View>
       </Modal>
 
+      <Modal animationType="slide" transparent={true} visible={profileModalVisible} onRequestClose={closeProfileModal}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <ThemedText type="title" style={styles.modalTitle}>Edit Profile</ThemedText>
+            <ThemedText style={styles.profileModalText}>Update your profile and home location settings.</ThemedText>
+            <TextInput style={styles.input} value={profileFirstName} onChangeText={setProfileFirstName} placeholder="First Name" />
+            <TextInput style={styles.input} value={profileLastName} onChangeText={setProfileLastName} placeholder="Last Name" />
+            <TextInput style={styles.input} value={profileRadius} onChangeText={setProfileRadius} placeholder="Notification Radius (miles)" keyboardType="numeric" />
+            <TextInput
+              style={[styles.input, styles.addressInput]}
+              value={profileAddress}
+              onChangeText={(text) => {
+                setProfileAddress(text);
+                setProfileAddressTouched(true);
+                setProfileGeocodedAddress('');
+                setProfileAddressError('');
+                setAddressGuidanceText('');
+                if (text.trim().length > 0) {
+                  setProfileCoordinates(null);
+                }
+              }}
+              onBlur={() => {
+                void previewTypedAddress();
+              }}
+              placeholder="Home Address"
+              multiline
+              numberOfLines={3}
+            />
+
+            <ThemedText style={styles.profileDirectionsText}>Type a specific address: number, street, city, state/province, and postal code when available.</ThemedText>
+
+            {isSearchingAddress && (
+              <ThemedText style={styles.profileHintText}>Searching addresses...</ThemedText>
+            )}
+
+            {profileAddressSuggestions.length > 0 && (
+              <View style={styles.suggestionsPanel}>
+                {profileAddressSuggestions.map((suggestion) => (
+                  <TouchableOpacity key={`${suggestion.displayName}-${suggestion.latitude}-${suggestion.longitude}`} style={styles.suggestionRow} onPress={() => selectAddressSuggestion(suggestion)}>
+                    <ThemedText style={styles.suggestionText}>{suggestion.displayName}</ThemedText>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+
+            {addressGuidanceText.length > 0 && (
+              <ThemedText style={styles.addressGuidanceText}>{addressGuidanceText}</ThemedText>
+            )}
+
+            {isGeocodingAddress && (
+              <ThemedText style={styles.profileHintText}>Looking up address...</ThemedText>
+            )}
+
+            {profileAddressError.length > 0 && (
+              <ThemedText style={styles.addressErrorText}>{profileAddressError}</ThemedText>
+            )}
+
+            <TouchableOpacity style={styles.locationButton} onPress={useCurrentLocation} disabled={isSavingProfile}>
+              <ThemedText style={styles.locationButtonText}>Use My Location</ThemedText>
+            </TouchableOpacity>
+
+            {profileCoordinates && (
+              <ThemedText style={styles.locationSummary}>
+                Selected coordinates: {profileCoordinates.latitude.toFixed(6)}, {profileCoordinates.longitude.toFixed(6)}
+              </ThemedText>
+            )}
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={styles.saveButton} onPress={saveProfileChanges} disabled={isSavingProfile}>
+                <ThemedText style={styles.saveButtonText}>{isSavingProfile ? 'Saving...' : 'Save'}</ThemedText>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.cancelButton} onPress={closeProfileModal} disabled={isSavingProfile}>
+                <ThemedText style={styles.cancelButtonText}>Dismiss</ThemedText>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       <ScrollView style={styles.scrollContainer} contentContainerStyle={styles.scrollContent}>
         {loading ? (
           <ThemedText>Loading...</ThemedText>
@@ -278,7 +640,13 @@ export default function HomeScreen() {
                 <ThemedText style={styles.mapText}>Map preview (placeholder)</ThemedText>
               </View>
 
-              <TouchableOpacity style={styles.editButton} onPress={() => {}}>
+              {user?.location && (
+                <ThemedText style={styles.locationSummary}>
+                  Saved location: {user.location.latitude.toFixed(6)}, {user.location.longitude.toFixed(6)}
+                </ThemedText>
+              )}
+
+              <TouchableOpacity style={styles.editButton} onPress={openProfileModal}>
                 <ThemedText style={styles.editButtonText}>Edit</ThemedText>
               </TouchableOpacity>
             </View>
@@ -436,6 +804,12 @@ const styles = StyleSheet.create({
     color: '#1A3B5C',
     fontSize: 12,
   },
+  locationSummary: {
+    fontSize: 13,
+    color: '#37536B',
+    marginBottom: 10,
+    lineHeight: 18,
+  },
   editButton: {
     position: 'absolute',
     right: 14,
@@ -545,6 +919,72 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginBottom: 8,
     height: 44,
+  },
+  addressInput: {
+    height: 88,
+    textAlignVertical: 'top',
+  },
+  profileModalText: {
+    fontSize: 14,
+    color: '#6A6A6A',
+    marginBottom: 10,
+    lineHeight: 20,
+  },
+  profileDirectionsText: {
+    fontSize: 12,
+    color: '#51697F',
+    marginTop: 2,
+    marginBottom: 8,
+    lineHeight: 18,
+  },
+  profileHintText: {
+    fontSize: 13,
+    color: '#37536B',
+    marginTop: 6,
+    marginBottom: 4,
+  },
+  suggestionsPanel: {
+    maxHeight: 180,
+    borderWidth: 1,
+    borderColor: '#C9D3DE',
+    borderRadius: 8,
+    backgroundColor: '#F8FBFF',
+    marginTop: 4,
+    marginBottom: 6,
+  },
+  suggestionRow: {
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2EAF2',
+  },
+  suggestionText: {
+    fontSize: 13,
+    color: '#2D4357',
+  },
+  addressGuidanceText: {
+    fontSize: 12,
+    color: '#7A4B1D',
+    marginTop: 4,
+    marginBottom: 4,
+    lineHeight: 17,
+  },
+  addressErrorText: {
+    fontSize: 13,
+    color: '#9B1C1C',
+    marginTop: 6,
+    marginBottom: 4,
+  },
+  locationButton: {
+    marginTop: 8,
+    padding: 10,
+    borderRadius: 8,
+    backgroundColor: '#3E7A56',
+    alignItems: 'center',
+  },
+  locationButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
   },
   modalActions: {
     flexDirection: 'row',

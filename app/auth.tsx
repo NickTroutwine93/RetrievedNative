@@ -16,6 +16,7 @@ import {
 	signInWithEmailAndPassword,
 	signOut,
 } from 'firebase/auth';
+import * as Location from 'expo-location';
 import { router } from 'expo-router';
 
 import { ThemedText } from '@/components/themed-text';
@@ -32,6 +33,7 @@ export default function AuthScreen() {
 	const [profileFirstName, setProfileFirstName] = useState('');
 	const [profileLastName, setProfileLastName] = useState('');
 	const [profileRadius, setProfileRadius] = useState('5');
+	const [profileHomeAddress, setProfileHomeAddress] = useState('');
 	const [pendingEmail, setPendingEmail] = useState('');
 	const [savingProfile, setSavingProfile] = useState(false);
 
@@ -67,6 +69,7 @@ export default function AuthScreen() {
 					setProfileFirstName('');
 					setProfileLastName('');
 					setProfileRadius('5');
+					setProfileHomeAddress('');
 					setProfileModalVisible(true);
 					return;
 				}
@@ -81,22 +84,35 @@ export default function AuthScreen() {
 	};
 
 	const handleSaveProfile = async () => {
-		if (!profileFirstName.trim() || !profileLastName.trim()) {
-			Alert.alert('Missing fields', 'Please enter first and last name.');
+		if (!profileFirstName.trim() || !profileLastName.trim() || !profileHomeAddress.trim()) {
+			Alert.alert('Missing fields', 'Please enter first name, last name, and home address.');
 			return;
 		}
 
 		setSavingProfile(true);
 		try {
+			const results = await Location.geocodeAsync(profileHomeAddress.trim());
+			const firstMatch = results[0];
+
+			if (!firstMatch) {
+				Alert.alert('Address not found', 'Enter a complete home address so it can be saved as your map location.');
+				return;
+			}
+
 			await createUserAccount(db, pendingEmail, {
 				firstName: profileFirstName.trim(),
 				lastName: profileLastName.trim(),
 				radius: profileRadius.trim(),
+				homeAddress: profileHomeAddress.trim(),
+				location: {
+					latitude: firstMatch.latitude,
+					longitude: firstMatch.longitude,
+				},
 			});
 			setProfileModalVisible(false);
 			router.replace('/(tabs)' as any);
-		} catch (error) {
-			Alert.alert('Error', 'Could not save profile information.');
+		} catch (error: any) {
+			Alert.alert('Error', error?.message ?? 'Could not save profile information.');
 		} finally {
 			setSavingProfile(false);
 		}
@@ -108,6 +124,7 @@ export default function AuthScreen() {
 		setProfileFirstName('');
 		setProfileLastName('');
 		setProfileRadius('5');
+		setProfileHomeAddress('');
 		await signOut(auth);
 	};
 
@@ -184,9 +201,18 @@ export default function AuthScreen() {
 				<View style={styles.modalOverlay}>
 					<View style={styles.modalContent}>
 						<ThemedText type="title" style={styles.modalTitle}>Complete Profile</ThemedText>
+						<ThemedText style={styles.modalSubtitle}>Enter your home address so the app can save your default map location.</ThemedText>
 						<TextInput style={styles.input} value={profileFirstName} onChangeText={setProfileFirstName} placeholder="First Name" />
 						<TextInput style={styles.input} value={profileLastName} onChangeText={setProfileLastName} placeholder="Last Name" />
 						<TextInput style={styles.input} value={profileRadius} onChangeText={setProfileRadius} placeholder="Notification Radius (miles)" keyboardType="numeric" />
+						<TextInput
+							style={[styles.input, styles.addressInput]}
+							value={profileHomeAddress}
+							onChangeText={setProfileHomeAddress}
+							placeholder="Home Address"
+							multiline
+							numberOfLines={3}
+						/>
 
 						<View style={styles.modalActions}>
 							<Pressable style={styles.saveButton} onPress={handleSaveProfile} disabled={savingProfile}>
@@ -290,10 +316,19 @@ const styles = StyleSheet.create({
 		fontWeight: 'bold',
 		marginBottom: 12,
 	},
+	modalSubtitle: {
+		fontSize: 14,
+		color: '#7B6A58',
+		marginBottom: 12,
+	},
 	modalActions: {
 		flexDirection: 'row',
 		justifyContent: 'space-between',
 		marginTop: 10,
+	},
+	addressInput: {
+		height: 86,
+		textAlignVertical: 'top',
 	},
 	saveButton: {
 		backgroundColor: '#0076C0',

@@ -1,4 +1,4 @@
-import { collection, query, where, getDocs, doc, updateDoc, getDoc, addDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, updateDoc, getDoc, addDoc, GeoPoint } from 'firebase/firestore';
 
 export async function getUserData(db, email) {
   try {
@@ -16,6 +16,7 @@ export async function getUserData(db, email) {
       id: doc.id,
       firstName: doc.data().FirstName,
       radius: doc.data().Radius,
+      location: doc.data().Location,
     };
   } catch (error) {
     console.error('Error fetching user data:', error);
@@ -25,12 +26,15 @@ export async function getUserData(db, email) {
 
 export async function createUserAccount(db, email, profile) {
   try {
+    const location = new GeoPoint(profile.location.latitude, profile.location.longitude);
+
     const accountDoc = await addDoc(collection(db, 'accounts'), {
       AuthenticationAgent: 'Password',
       Email: email,
       FirstName: profile.firstName,
       LastName: profile.lastName,
       Radius: Number(profile.radius) || 5,
+      Location: location,
       PetID: [],
       ActiveSearches: [],
       SearchHistory: [],
@@ -43,9 +47,61 @@ export async function createUserAccount(db, email, profile) {
       FirstName: profile.firstName,
       LastName: profile.lastName,
       Radius: Number(profile.radius) || 5,
+      Location: location,
     };
   } catch (error) {
     console.error('Error creating user account:', error);
+    throw error;
+  }
+}
+
+export async function updateUserLocation(db, userId, location) {
+  try {
+    const accountDoc = doc(db, 'accounts', userId);
+    const geoPoint = new GeoPoint(location.latitude, location.longitude);
+
+    await updateDoc(accountDoc, {
+      Location: geoPoint,
+    });
+
+    return geoPoint;
+  } catch (error) {
+    console.error('Error updating user location:', error);
+    throw error;
+  }
+}
+
+export async function updateUserProfile(db, userId, profile) {
+  try {
+    const accountDoc = doc(db, 'accounts', userId);
+    const updates = {};
+
+    if (profile.firstName !== undefined) {
+      updates.FirstName = profile.firstName;
+    }
+
+    if (profile.lastName !== undefined) {
+      updates.LastName = profile.lastName;
+    }
+
+    if (profile.radius !== undefined) {
+      updates.Radius = Number(profile.radius) || 5;
+    }
+
+    if (profile.location) {
+      updates.Location = new GeoPoint(profile.location.latitude, profile.location.longitude);
+    }
+
+    await updateDoc(accountDoc, updates);
+
+    return {
+      firstName: updates.FirstName,
+      lastName: updates.LastName,
+      radius: updates.Radius,
+      location: updates.Location,
+    };
+  } catch (error) {
+    console.error('Error updating user profile:', error);
     throw error;
   }
 }
