@@ -112,6 +112,49 @@ export default function AuthScreen() {
 		};
 	};
 
+	const formatSuggestionDisplayName = (item: any): string => {
+		const address = item?.address || {};
+		const line1 = [
+			address.house_number,
+			address.road || address.pedestrian || address.footway,
+		]
+			.filter(Boolean)
+			.join(' ')
+			.trim();
+
+		const locality =
+			address.city ||
+			address.town ||
+			address.village ||
+			address.hamlet ||
+			address.municipality ||
+			address.locality;
+
+		const parts = [
+			line1 || address.road || address.pedestrian || address.footway,
+			locality,
+			address.state || address.state_district,
+			address.postcode,
+			address.country,
+		].filter(Boolean);
+
+		if (parts.length > 0) {
+			return parts.join(', ');
+		}
+
+		const excludedSegments = new Set(
+			[address.county, address.neighbourhood, address.neighborhood]
+				.filter(Boolean)
+				.map((value: any) => String(value).toLowerCase())
+		);
+
+		return String(item?.display_name || '')
+			.split(',')
+			.map((segment) => segment.trim())
+			.filter((segment) => segment.length > 0 && !excludedSegments.has(segment.toLowerCase()))
+			.join(', ');
+	};
+
 	const lookupAddressSuggestions = async (queryText: string): Promise<AddressSuggestion[]> => {
 		const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=5&q=${encodeURIComponent(queryText)}`;
 		const response = await fetch(url, {
@@ -132,7 +175,7 @@ export default function AuthScreen() {
 
 		return json
 			.map((item: any) => ({
-				displayName: item.display_name,
+				displayName: formatSuggestionDisplayName(item),
 				latitude: Number(item.lat),
 				longitude: Number(item.lon),
 			}))
