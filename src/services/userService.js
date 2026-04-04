@@ -1,4 +1,17 @@
-import { collection, query, where, getDocs, doc, updateDoc, getDoc, addDoc, GeoPoint, arrayUnion } from 'firebase/firestore';
+import {
+  collection,
+  query,
+  where,
+  getDocs,
+  doc,
+  updateDoc,
+  getDoc,
+  addDoc,
+  GeoPoint,
+  arrayUnion,
+  onSnapshot,
+  serverTimestamp,
+} from 'firebase/firestore';
 
 function mapPetRecord(petDoc) {
   if (!petDoc?.exists()) {
@@ -20,13 +33,19 @@ function mapPetRecord(petDoc) {
 async function hydrateSearchRecord(db, searchDoc) {
   const data = searchDoc.data();
   const petId = data.PetID ?? data.petID;
+  const ownerId = data.OwnerID ?? data.owner;
   const petDoc = petId ? await getDoc(doc(db, 'pets', petId)) : null;
+  const ownerDoc = ownerId ? await getDoc(doc(db, 'accounts', ownerId)) : null;
   const rawSearchers = Array.isArray(data.Searchers)
     ? data.Searchers
     : Array.isArray(data.searchers)
     ? data.searchers
     : [];
   const searcherIds = [...new Set(rawSearchers.filter(Boolean))];
+  const ownerData = ownerDoc?.exists() ? ownerDoc.data() : null;
+  const ownerName = ownerData
+    ? [ownerData.FirstName, ownerData.LastName].filter(Boolean).join(' ').trim() || ownerData.Email || ownerId
+    : ownerId || '';
 
   const searcherNames = (
     await Promise.all(
@@ -48,7 +67,8 @@ async function hydrateSearchRecord(db, searchDoc) {
     ...data,
     date: data.Date ?? data.date,
     status: data.Status ?? data.status,
-    owner: data.OwnerID ?? data.owner,
+    owner: ownerId,
+    ownerName,
     petID: petId,
     searchers: searcherIds,
     searcherNames,
@@ -244,6 +264,266 @@ export async function getActiveSearches(db) {
   } catch (error) {
     console.error('Error fetching active searches:', error);
     throw error;
+  }
+}
+
+function toMillis(value) {
+  if (!value) {
+    return 0;
+  }
+
+  if (typeof value?.toDate === 'function') {
+    return value.toDate().getTime();
+  }
+
+  if (value instanceof Date) {
+    return value.getTime();
+  }
+
+  if (typeof value === 'number') {
+    return value;
+  }
+
+  const parsed = new Date(value).getTime();
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function mapMessageRecord(messageDoc) {
+  const messageData = messageDoc.data() || {};
+  return {
+    id: messageDoc.id,
+    SearchID: messageData.SearchID,
+    SenderID: messageData.SenderID,
+    SenderName: messageData.SenderName,
+    Text: messageData.Text,
+    createdAt: messageData.createdAt,
+    createdAtMs: toMillis(messageData.createdAt),
+  };
+}
+
+export async function getUserMessageThreads(db, email) {
+  try {
+    if (!email) {
+      return [];
+    }
+
+    const currentUser = await getUserData(db, email);
+    if (!currentUser?.id) {
+      return [];
+    }
+
+    const activeSearches = await getActiveSearches(db);
+    const participantSearches = activeSearches.filter((search) => {
+      const ownerId = search.owner ?? search.OwnerID;
+      const searchers = Array.isArray(search.searchers)
+        ? search.searchers
+        : Array.isArray(search.Searchers)
+        ? search.Searchers
+        : [];
+
+      return ownerId === currentUser.id || searchers.includes(currentUser.id);
+    });
+
+    const threadData = participantSearches.map((search) => mapThreadRecord(search, currentUser.id));
+
+    return threadData.sort((a, b) => b.lastActivityMs - a.lastActivityMs);
+  } catch (error) {
+    console.error('Error loading message threads:', error);
+    throw error;
+  }
+}
+
+function mapThreadRecord(search, currentUserId) {
+  const lastMessageAt = search.lastMessageAt ?? search.lastUpdated;
+  const lastMessage = search.lastMessageText
+    ? {
+        id: `${search.id}-summary`,
+        SearchID: search.id,
+        SenderID: search.lastMessageSenderID,
+        SenderName: search.lastMessageSenderName,
+        Text: search.lastMessageText,
+        createdAt: lastMessageAt,
+        createdAtMs: toMillis(lastMessageAt),
+      }
+    : null;
+
+  const messageReadAt = search.MessageReadAt || {};
+  const userReadAtMs = toMillis(messageReadAt[currentUserId]);
+  const lastMessageAtMs = lastMessage?.createdAtMs || 0;
+  const unreadCount = lastMessageAtMs > userReadAtMs && lastMessage?.SenderID !== currentUserId ? 1 : 0;
+  const lastUpdatedMs = toMillis(search.lastUpdated);
+  const searchDateMs = toMillis(search.date ?? search.Date);
+
+  return {
+    id: search.id,
+    searchId: search.id,
+    pet: search.pet,
+    ownerId: search.owner ?? search.OwnerID,
+    ownerName: search.ownerName,
+    searcherIds: search.searchers ?? search.Searchers ?? [],
+    searcherNames: search.searcherNames ?? [],
+    lastMessage,
+    unreadCount,
+    lastActivityMs: lastMessage?.createdAtMs || lastUpdatedMs || searchDateMs,
+  };
+}
+
+export async function subscribeUserMessageThreads(db, email, onThreads, onError) {
+  try {
+    const currentUser = await getUserData(db, email);
+    if (!currentUser?.id) {
+      onThreads([], null);
+      return () => {};
+    }
+
+    const searchRef = collection(db, 'searches');
+    return onSnapshot(
+      searchRef,
+      async (snapshot) => {
+        try {
+          const activeSearchDocs = snapshot.docs.filter((searchDoc) => {
+            const data = searchDoc.data();
+            const status = data.Status ?? data.status;
+            return status === 1;
+          });
+
+          const hydratedSearches = await Promise.all(
+            activeSearchDocs.map((searchDoc) => hydrateSearchRecord(db, searchDoc))
+          );
+
+          const participantSearches = hydratedSearches.filter((search) => {
+            const ownerId = search.owner ?? search.OwnerID;
+            const searchers = Array.isArray(search.searchers)
+              ? search.searchers
+              : Array.isArray(search.Searchers)
+              ? search.Searchers
+              : [];
+
+            return ownerId === currentUser.id || searchers.includes(currentUser.id);
+          });
+
+          const threadData = participantSearches
+            .map((search) => mapThreadRecord(search, currentUser.id))
+            .sort((a, b) => b.lastActivityMs - a.lastActivityMs);
+
+          onThreads(threadData, currentUser.id);
+        } catch (callbackError) {
+          console.error('Error processing message thread subscription:', callbackError);
+          if (typeof onError === 'function') {
+            onError(callbackError);
+          }
+        }
+      },
+      (subscriptionError) => {
+        console.error('Error subscribing to user message threads:', subscriptionError);
+        if (typeof onError === 'function') {
+          onError(subscriptionError);
+        }
+      }
+    );
+  } catch (error) {
+    console.error('Error starting message thread subscription:', error);
+    if (typeof onError === 'function') {
+      onError(error);
+    }
+    return () => {};
+  }
+}
+
+export function subscribeToSearchMessages(db, searchId, onMessages, onError) {
+  const messagesQuery = query(collection(db, 'searchMessages'), where('SearchID', '==', searchId));
+
+  return onSnapshot(
+    messagesQuery,
+    (snapshot) => {
+      const messages = snapshot.docs
+        .map(mapMessageRecord)
+        .sort((a, b) => a.createdAtMs - b.createdAtMs);
+      onMessages(messages);
+    },
+    (error) => {
+      console.error('Error subscribing to messages:', error);
+      if (typeof onError === 'function') {
+        onError(error);
+      }
+    }
+  );
+}
+
+export async function sendSearchMessage(db, { searchId, senderId, senderName, text }) {
+  try {
+    const trimmedText = String(text || '').trim();
+    if (!searchId) {
+      throw new Error('Search id is required.');
+    }
+
+    if (!senderId) {
+      throw new Error('Sender id is required.');
+    }
+
+    if (!trimmedText) {
+      throw new Error('Message cannot be empty.');
+    }
+
+    const searchRef = doc(db, 'searches', searchId);
+    const searchDoc = await getDoc(searchRef);
+    if (!searchDoc.exists()) {
+      throw new Error('Search not found.');
+    }
+
+    const searchData = searchDoc.data() || {};
+    const status = searchData.Status ?? searchData.status;
+    if (status !== 1) {
+      throw new Error('Messaging is only available for active searches.');
+    }
+
+    const ownerId = searchData.OwnerID ?? searchData.owner;
+    const searchers = Array.isArray(searchData.Searchers)
+      ? searchData.Searchers
+      : Array.isArray(searchData.searchers)
+      ? searchData.searchers
+      : [];
+
+    if (senderId !== ownerId && !searchers.includes(senderId)) {
+      throw new Error('You are not part of this search.');
+    }
+
+    const messageDoc = await addDoc(collection(db, 'searchMessages'), {
+      SearchID: searchId,
+      SenderID: senderId,
+      SenderName: senderName || 'Search volunteer',
+      Text: trimmedText,
+      createdAt: serverTimestamp(),
+    });
+
+    await updateDoc(searchRef, {
+      lastUpdated: serverTimestamp(),
+      lastMessageAt: serverTimestamp(),
+      lastMessageText: trimmedText.slice(0, 240),
+      lastMessageSenderID: senderId,
+      lastMessageSenderName: senderName || 'Search volunteer',
+      [`MessageReadAt.${senderId}`]: serverTimestamp(),
+    });
+
+    return messageDoc.id;
+  } catch (error) {
+    console.error('Error sending search message:', error);
+    throw error;
+  }
+}
+
+export async function markSearchThreadRead(db, searchId, userId) {
+  try {
+    if (!searchId || !userId) {
+      return;
+    }
+
+    await updateDoc(doc(db, 'searches', searchId), {
+      [`MessageReadAt.${userId}`]: serverTimestamp(),
+      lastUpdated: serverTimestamp(),
+    });
+  } catch (error) {
+    console.error('Error marking thread as read:', error);
   }
 }
 
