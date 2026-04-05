@@ -73,6 +73,8 @@ export default function SearchDetailScreen() {
   const [leavingSearch, setLeavingSearch] = useState(false);
   const [messages, setMessages] = useState<any[]>([]);
   const [messagesExpanded, setMessagesExpanded] = useState(false);
+  const [sightingsExpanded, setSightingsExpanded] = useState(true);
+  const [searchersExpanded, setSearchersExpanded] = useState(true);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -143,10 +145,21 @@ export default function SearchDetailScreen() {
   const canAddSighting = Boolean(currentUserId && ownerId && currentUserId !== ownerId && searcherIds.includes(currentUserId));
   const canLeaveSearch = canAddSighting;
   const sightingsWithIndex = Array.isArray(search?.sightings)
-    ? search.sightings.map((sighting: any, index: number) => ({
-        ...sighting,
-        markerIndex: index + 1,
-      }))
+    ? (() => {
+        const chronological = [...search.sightings].sort(
+          (a: any, b: any) => toMillis(a?.createdAt ?? a?.createdAtMs) - toMillis(b?.createdAt ?? b?.createdAtMs)
+        );
+
+        const markerIndexById = new Map<string, number>();
+        chronological.forEach((sighting: any, index: number) => {
+          markerIndexById.set(sighting.id, index + 1);
+        });
+
+        return search.sightings.map((sighting: any) => ({
+          ...sighting,
+          markerIndex: markerIndexById.get(sighting.id) ?? 0,
+        }));
+      })()
     : [];
   const sightingMarkers = sightingsWithIndex
     ? sightingsWithIndex.map((sighting: any) => ({
@@ -378,34 +391,58 @@ export default function SearchDetailScreen() {
                 </View>
               )}
 
-              {sightingsWithIndex.length === 0 ? (
-                <View style={styles.sightingCard}>
-                  <ThemedText style={styles.sightingTitle}>No Sightings Yet</ThemedText>
-                  <ThemedText style={styles.sightingDetails}>When joined searchers report sightings, they will appear on the map as numbered markers here.</ThemedText>
-                </View>
-              ) : null}
+              <View style={styles.sightingsContainer}>
+                <TouchableOpacity
+                  style={[styles.sightingsHeaderButton, sightingsExpanded && styles.sightingsHeaderButtonExpanded]}
+                  onPress={() => setSightingsExpanded((prev) => !prev)}
+                  activeOpacity={0.7}>
+                  <View style={styles.sightingsHeaderContent}>
+                    <View style={styles.sightingsHeaderTextWrap}>
+                      <ThemedText type="subtitle" style={styles.sectionTitle}>Sightings ({sightingsWithIndex.length})</ThemedText>
+                      {!sightingsExpanded ? <ThemedText style={styles.sightingsHintText}>Tap to expand</ThemedText> : null}
+                    </View>
+                    <View style={styles.sightingsChevronWrap}>
+                      <IconSymbol
+                        size={18}
+                        name="chevron.right"
+                        color="#0a5df0"
+                        style={sightingsExpanded ? styles.sightingsChevronIconExpanded : undefined}
+                      />
+                    </View>
+                  </View>
+                </TouchableOpacity>
 
-              {sightingsWithIndex.length > 0 ? (
-                <View style={styles.sightingTilesSection}>
-                  {sightingsWithIndex.map((sighting: any) => {
-                    return (
-                      <TouchableOpacity
-                        key={sighting.id}
-                        style={styles.sightingTile}>
-                        <View style={[styles.sightingTileBadge, { backgroundColor: getConfidenceColor(sighting.confidence) }]}>
-                          <ThemedText style={[styles.sightingTileBadgeText, { color: getConfidenceTextColor(sighting.confidence) }]}>{sighting.markerIndex}</ThemedText>
-                        </View>
-                        <ThemedText style={styles.sightingTileTitle}>Sighting #{sighting.markerIndex}</ThemedText>
-                        <ThemedText style={styles.sightingTileMeta}>Reported by {sighting.reporterName} • {formatRelativeTime(sighting.createdAt)}</ThemedText>
-                        <ThemedText style={styles.sightingTileMeta}>Confidence: {sighting.confidence}/5 • {sighting.latitude.toFixed(5)}, {sighting.longitude.toFixed(5)}</ThemedText>
-                        {sighting.details ? (
-                          <ThemedText style={styles.sightingTileDetails}>{sighting.details}</ThemedText>
-                        ) : null}
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              ) : null}
+                {sightingsExpanded ? (
+                  <View style={styles.sightingsSection}>
+                    {sightingsWithIndex.length === 0 ? (
+                      <View style={styles.sightingCard}>
+                        <ThemedText style={styles.sightingTitle}>No Sightings Yet</ThemedText>
+                        <ThemedText style={styles.sightingDetails}>When joined searchers report sightings, they will appear on the map as numbered markers here.</ThemedText>
+                      </View>
+                    ) : (
+                      <View style={styles.sightingTilesSection}>
+                        {sightingsWithIndex.map((sighting: any) => {
+                          return (
+                            <TouchableOpacity
+                              key={sighting.id}
+                              style={styles.sightingTile}>
+                              <View style={[styles.sightingTileBadge, { backgroundColor: getConfidenceColor(sighting.confidence) }]}>
+                                <ThemedText style={[styles.sightingTileBadgeText, { color: getConfidenceTextColor(sighting.confidence) }]}>{sighting.markerIndex}</ThemedText>
+                              </View>
+                              <ThemedText style={styles.sightingTileTitle}>Sighting #{sighting.markerIndex}</ThemedText>
+                              <ThemedText style={styles.sightingTileMeta}>Reported by {sighting.reporterName} • {formatRelativeTime(sighting.createdAt)}</ThemedText>
+                              <ThemedText style={styles.sightingTileMeta}>Confidence: {sighting.confidence}/5 • {sighting.latitude.toFixed(5)}, {sighting.longitude.toFixed(5)}</ThemedText>
+                              {sighting.details ? (
+                                <ThemedText style={styles.sightingTileDetails}>{sighting.details}</ThemedText>
+                              ) : null}
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    )}
+                  </View>
+                ) : null}
+              </View>
             </View>
 
             <View style={styles.messagesContainer}>
@@ -455,15 +492,38 @@ export default function SearchDetailScreen() {
               ) : null}
             </View>
 
-            <View style={styles.searchersSection}>
-              <ThemedText type="subtitle" style={styles.sectionTitle}>Joined Searchers</ThemedText>
-              {Array.isArray(search?.searcherNames) && search.searcherNames.length > 0 ? (
-                search.searcherNames.map((name: string, index: number) => (
-                  <ThemedText key={`${name}-${index}`} style={styles.searcherNameText}>{index + 1}. {name}</ThemedText>
-                ))
-              ) : (
-                <ThemedText style={styles.placeholderText}>No one has joined this search yet.</ThemedText>
-              )}
+            <View style={styles.searchersContainer}>
+              <TouchableOpacity
+                style={[styles.searchersHeaderButton, searchersExpanded && styles.searchersHeaderButtonExpanded]}
+                onPress={() => setSearchersExpanded((prev) => !prev)}
+                activeOpacity={0.7}>
+                <View style={styles.searchersHeaderContent}>
+                  <View style={styles.searchersHeaderTextWrap}>
+                    <ThemedText type="subtitle" style={styles.sectionTitle}>Joined Searchers ({Array.isArray(search?.searcherNames) ? search.searcherNames.length : 0})</ThemedText>
+                    {!searchersExpanded ? <ThemedText style={styles.searchersHintText}>Tap to expand</ThemedText> : null}
+                  </View>
+                  <View style={styles.searchersChevronWrap}>
+                    <IconSymbol
+                      size={18}
+                      name="chevron.right"
+                      color="#0a5df0"
+                      style={searchersExpanded ? styles.searchersChevronIconExpanded : undefined}
+                    />
+                  </View>
+                </View>
+              </TouchableOpacity>
+
+              {searchersExpanded ? (
+                <View style={styles.searchersSection}>
+                  {Array.isArray(search?.searcherNames) && search.searcherNames.length > 0 ? (
+                    search.searcherNames.map((name: string, index: number) => (
+                      <ThemedText key={`${name}-${index}`} style={styles.searcherNameText}>{index + 1}. {name}</ThemedText>
+                    ))
+                  ) : (
+                    <ThemedText style={styles.placeholderText}>No one has joined this search yet.</ThemedText>
+                  )}
+                </View>
+              ) : null}
             </View>
           </>
         ) : null}
@@ -581,13 +641,60 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontWeight: '700',
   },
+  searchersContainer: {
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  searchersHeaderButton: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#c8dcf0',
+    backgroundColor: '#eef6ff',
+  },
+  searchersHeaderButtonExpanded: {
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+  },
+  searchersHeaderContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  searchersHeaderTextWrap: {
+    flex: 1,
+    gap: 2,
+  },
+  searchersHintText: {
+    fontSize: 12,
+    color: '#4f6b82',
+    fontWeight: '600',
+  },
+  searchersChevronWrap: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#dcebfb',
+    borderWidth: 1,
+    borderColor: '#b8d4f0',
+  },
+  searchersChevronIconExpanded: {
+    transform: [{ rotate: '-90deg' }],
+  },
   searchersSection: {
     gap: 8,
     padding: 12,
-    borderRadius: 12,
+    borderBottomLeftRadius: 12,
+    borderBottomRightRadius: 12,
+    borderTopLeftRadius: 0,
+    borderTopRightRadius: 0,
     borderWidth: 1,
-    borderColor: '#c6d4e0',
-    backgroundColor: '#f5f9fd',
+    borderTopWidth: 0,
+    borderColor: '#d1e0f0',
+    backgroundColor: '#f0f7ff',
   },
   searcherNameText: {
     fontSize: 14,
@@ -693,6 +800,61 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     color: '#1d3348',
     marginTop: 2,
+  },
+  sightingsContainer: {
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  sightingsHeaderButton: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#bdd5eb',
+    backgroundColor: '#e7f2fc',
+  },
+  sightingsHeaderButtonExpanded: {
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+  },
+  sightingsHeaderContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  sightingsHeaderTextWrap: {
+    flex: 1,
+    gap: 2,
+  },
+  sightingsHintText: {
+    fontSize: 12,
+    color: '#4f6b82',
+    fontWeight: '600',
+  },
+  sightingsChevronWrap: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#d7e8f8',
+    borderWidth: 1,
+    borderColor: '#b7d0e8',
+  },
+  sightingsChevronIconExpanded: {
+    transform: [{ rotate: '-90deg' }],
+  },
+  sightingsSection: {
+    gap: 8,
+    padding: 12,
+    borderBottomLeftRadius: 12,
+    borderBottomRightRadius: 12,
+    borderTopLeftRadius: 0,
+    borderTopRightRadius: 0,
+    borderWidth: 1,
+    borderTopWidth: 0,
+    borderColor: '#cbe0f2',
+    backgroundColor: '#edf6fe',
   },
   placeholderBox: {
     padding: 20,
