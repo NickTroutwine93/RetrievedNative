@@ -57,6 +57,68 @@ function mapSightingRecord(sighting, index = 0) {
   };
 }
 
+function parseSearcherEntry(rawSearcher) {
+  if (!rawSearcher) {
+    return null;
+  }
+
+  if (typeof rawSearcher === 'string') {
+    try {
+      const parsed = JSON.parse(rawSearcher);
+      return parseSearcherEntry(parsed);
+    } catch {
+      // Backward compatibility: historical data stored plain user IDs.
+      return {
+        searcherId: rawSearcher,
+        status: 1,
+      };
+    }
+  }
+
+  if (typeof rawSearcher === 'object') {
+    const searcherId =
+      rawSearcher.SearcherID ??
+      rawSearcher.searcherId ??
+      rawSearcher.SearchersID ??
+      rawSearcher.searchersID ??
+      rawSearcher.id ??
+      '';
+    if (!searcherId) {
+      return null;
+    }
+
+    const parsedStatus = Number(rawSearcher.Status ?? rawSearcher.status ?? 1);
+    return {
+      searcherId,
+      status: parsedStatus === 0 ? 0 : 1,
+    };
+  }
+
+  return null;
+}
+
+function normalizeSearcherEntries(rawSearchers) {
+  const normalized = (Array.isArray(rawSearchers) ? rawSearchers : [])
+    .map(parseSearcherEntry)
+    .filter(Boolean);
+
+  const uniqueById = new Map();
+  normalized.forEach((entry) => {
+    uniqueById.set(entry.searcherId, entry);
+  });
+
+  const entries = Array.from(uniqueById.values());
+  const activeIds = entries.filter((entry) => entry.status === 1).map((entry) => entry.searcherId);
+  return { entries, activeIds };
+}
+
+function stringifySearcherEntry(entry) {
+  return JSON.stringify({
+    SearchersID: entry.searcherId,
+    Status: entry.status === 0 ? 0 : 1,
+  });
+}
+
 async function hydrateSearchRecord(db, searchDoc) {
   const data = searchDoc.data();
   const petId = data.PetID ?? data.petID;
@@ -68,7 +130,7 @@ async function hydrateSearchRecord(db, searchDoc) {
     : Array.isArray(data.searchers)
     ? data.searchers
     : [];
-  const searcherIds = [...new Set(rawSearchers.filter(Boolean))];
+  const { entries: searcherEntries, activeIds: searcherIds } = normalizeSearcherEntries(rawSearchers);
   const ownerData = ownerDoc?.exists() ? ownerDoc.data() : null;
   const ownerName = ownerData
     ? [ownerData.FirstName, ownerData.LastName].filter(Boolean).join(' ').trim() || ownerData.Email || ownerId
@@ -105,6 +167,7 @@ async function hydrateSearchRecord(db, searchDoc) {
     ownerName,
     petID: petId,
     searchers: searcherIds,
+    searcherEntries,
     searcherNames,
     sightings,
     created: data.created,
@@ -513,11 +576,12 @@ export async function sendSearchMessage(db, { searchId, senderId, senderName, te
     }
 
     const ownerId = searchData.OwnerID ?? searchData.owner;
-    const searchers = Array.isArray(searchData.Searchers)
+    const rawSearchers = Array.isArray(searchData.Searchers)
       ? searchData.Searchers
       : Array.isArray(searchData.searchers)
       ? searchData.searchers
       : [];
+    const { activeIds: searchers } = normalizeSearcherEntries(rawSearchers);
 
     if (senderId !== ownerId && !searchers.includes(senderId)) {
       throw new Error('You are not part of this search.');
@@ -650,13 +714,85 @@ export async function joinSearch(db, searchId, email) {
     }
 
     const userId = userSnapshot.docs[0].id;
-    await updateDoc(doc(db, 'searches', searchId), {
-      Searchers: arrayUnion(userId),
+    const searchRef = doc(db, 'searches', searchId);
+    const searchSnapshot = await getDoc(searchRef);
+    if (!searchSnapshot.exists()) {
+      throw new Error('Search not found.');
+    }
+
+    const searchData = searchSnapshot.data() || {};
+    const rawSearchers = Array.isArray(searchData.Searchers)
+      ? searchData.Searchers
+      : Array.isArray(searchData.searchers)
+      ? searchData.searchers
+      : [];
+
+    const { entries } = normalizeSearcherEntries(rawSearchers);
+    const existing = entries.find((entry) => entry.searcherId === userId);
+    if (existing) {
+      existing.status = 1;
+    } else {
+      entries.push({ searcherId: userId, status: 1 });
+    }
+
+    await updateDoc(searchRef, {
+      Searchers: entries.map(stringifySearcherEntry),
+      lastUpdated: serverTimestamp(),
     });
 
     return userId;
   } catch (error) {
     console.error('Error joining search:', error);
+    throw error;
+  }
+}
+
+export async function leaveSearch(db, searchId, email) {
+  try {
+    if (!searchId) {
+      throw new Error('Search id is required to leave a search.');
+    }
+
+    if (!email) {
+      throw new Error('A signed-in user is required to leave a search.');
+    }
+
+    const userQuery = query(collection(db, 'accounts'), where('Email', '==', email));
+    const userSnapshot = await getDocs(userQuery);
+    if (userSnapshot.empty) {
+      throw new Error('User account not found for this session.');
+    }
+
+    const userId = userSnapshot.docs[0].id;
+    const searchRef = doc(db, 'searches', searchId);
+    const searchSnapshot = await getDoc(searchRef);
+    if (!searchSnapshot.exists()) {
+      throw new Error('Search not found.');
+    }
+
+    const searchData = searchSnapshot.data() || {};
+    const rawSearchers = Array.isArray(searchData.Searchers)
+      ? searchData.Searchers
+      : Array.isArray(searchData.searchers)
+      ? searchData.searchers
+      : [];
+    const { entries } = normalizeSearcherEntries(rawSearchers);
+    const existing = entries.find((entry) => entry.searcherId === userId);
+
+    if (!existing) {
+      throw new Error('You are not currently joined to this search.');
+    }
+
+    existing.status = 0;
+
+    await updateDoc(searchRef, {
+      Searchers: entries.map(stringifySearcherEntry),
+      lastUpdated: serverTimestamp(),
+    });
+
+    return userId;
+  } catch (error) {
+    console.error('Error leaving search:', error);
     throw error;
   }
 }
@@ -726,11 +862,12 @@ export async function submitSearchSighting(db, { searchId, reporterId, reporterN
     }
 
     const ownerId = searchData.OwnerID ?? searchData.owner;
-    const searchers = Array.isArray(searchData.Searchers)
+    const rawSearchers = Array.isArray(searchData.Searchers)
       ? searchData.Searchers
       : Array.isArray(searchData.searchers)
       ? searchData.searchers
       : [];
+    const { activeIds: searchers } = normalizeSearcherEntries(rawSearchers);
 
     if (reporterId === ownerId || !searchers.includes(reporterId)) {
       throw new Error('Only joined searchers can add sightings.');

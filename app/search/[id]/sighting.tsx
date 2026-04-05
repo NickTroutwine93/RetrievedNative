@@ -4,13 +4,39 @@ import { router, useLocalSearchParams } from 'expo-router';
 import * as Location from 'expo-location';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { MapTilerTileMap } from '../../../components/maptiler-tile-map';
+import { MapTilerInteractiveMap } from '../../../components/maptiler-interactive-map';
 import { ThemedText } from '../../../components/themed-text';
 import { ThemedView } from '../../../components/themed-view';
 import { auth, db } from '../../../src/services/firebaseClient';
 import { getSearchById, getUserData, submitSearchSighting } from '../../../src/services/userService';
 
 const MAPTILER_KEY = process.env.EXPO_PUBLIC_MAPTILER_API_KEY;
+
+function getConfidenceColor(confidence: number) {
+  const value = Number(confidence);
+  if (value <= 1) {
+    return '#d64545';
+  }
+
+  if (value === 2) {
+    return '#e67e22';
+  }
+
+  if (value === 3) {
+    return '#f1c40f';
+  }
+
+  if (value === 4) {
+    return '#6ab04c';
+  }
+
+  return '#2ecc71';
+}
+
+function getConfidenceTextColor(confidence: number) {
+  const value = Number(confidence);
+  return value === 3 ? '#2b2b2b' : '#ffffff';
+}
 
 export default function AddSightingScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
@@ -22,6 +48,7 @@ export default function AddSightingScreen() {
   const [confidence, setConfidence] = useState<number>(0);
   const [details, setDetails] = useState('');
   const [selectedLocation, setSelectedLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [isMapInteracting, setIsMapInteracting] = useState(false);
 
   const loadContext = useCallback(async () => {
     if (!id) {
@@ -160,7 +187,7 @@ export default function AddSightingScreen() {
         <ThemedText type="title" style={styles.headerTitle}>Report Sighting</ThemedText>
       </ThemedView>
 
-      <ScrollView style={styles.scrollContainer} contentContainerStyle={styles.scrollContent}>
+      <ScrollView style={styles.scrollContainer} contentContainerStyle={styles.scrollContent} scrollEnabled={!isMapInteracting}>
         {loading ? (
           <ActivityIndicator size="large" color="#0076C0" />
         ) : error ? (
@@ -177,9 +204,20 @@ export default function AddSightingScreen() {
                 {[1, 2, 3, 4, 5].map((value) => (
                   <TouchableOpacity
                     key={value}
-                    style={[styles.confidenceChip, confidence === value && styles.confidenceChipActive]}
+                    style={[
+                      styles.confidenceChip,
+                      { borderColor: getConfidenceColor(value) },
+                      confidence === value && { backgroundColor: getConfidenceColor(value) },
+                    ]}
                     onPress={() => setConfidence(value)}>
-                    <ThemedText style={[styles.confidenceChipText, confidence === value && styles.confidenceChipTextActive]}>{value}</ThemedText>
+                    <ThemedText
+                      style={[
+                        styles.confidenceChipText,
+                        { color: getConfidenceColor(value) },
+                        confidence === value && { color: getConfidenceTextColor(value) },
+                      ]}>
+                      {value}
+                    </ThemedText>
                   </TouchableOpacity>
                 ))}
               </View>
@@ -214,7 +252,7 @@ export default function AddSightingScreen() {
 
               {searchCenter && MAPTILER_KEY ? (
                 <View style={styles.mapWrapper}>
-                  <MapTilerTileMap
+                  <MapTilerInteractiveMap
                     center={searchCenter}
                     radiusMiles={Number(search?.Radius ?? search?.radius ?? 5) || 5}
                     apiKey={MAPTILER_KEY}
@@ -222,8 +260,25 @@ export default function AddSightingScreen() {
                     styleId="streets-v4"
                     centerMarker="house"
                     centerMarkerColor="#0a5df0"
-                    markers={selectedLocation ? [{ id: 'selected-sighting', latitude: selectedLocation.latitude, longitude: selectedLocation.longitude, label: '!', color: '#d23f31', textColor: '#ffffff' }] : []}
+                    centerMarkerSize={14}
+                    radiusVisualScale={0.68}
+                    markerSize={16}
+                    markers={
+                      selectedLocation
+                        ? [
+                            {
+                              id: 'selected-sighting',
+                              latitude: selectedLocation.latitude,
+                              longitude: selectedLocation.longitude,
+                              label: confidence ? String(confidence) : '!',
+                              color: getConfidenceColor(confidence || 3),
+                              textColor: getConfidenceTextColor(confidence || 3),
+                            },
+                          ]
+                        : []
+                    }
                     onMapPress={setSelectedLocation}
+                    onInteractionChange={setIsMapInteracting}
                     containerStyle={styles.mapTilesLayer}
                   />
                 </View>
@@ -311,16 +366,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#ffffff',
   },
-  confidenceChipActive: {
-    backgroundColor: '#0a5df0',
-  },
   confidenceChipText: {
     fontSize: 18,
     fontWeight: '700',
     color: '#0a5df0',
-  },
-  confidenceChipTextActive: {
-    color: '#ffffff',
   },
   detailsInput: {
     minHeight: 120,
@@ -360,7 +409,7 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   submitButton: {
-    backgroundColor: '#d23f31',
+    backgroundColor: '#0a5df0',
     borderRadius: 12,
     paddingVertical: 14,
     alignItems: 'center',

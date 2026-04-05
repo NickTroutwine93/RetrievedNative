@@ -38,6 +38,7 @@ export default function MapScreen() {
   const [areaSearches, setAreaSearches] = useState<any[]>([]);
   const [relativeTimeTick, setRelativeTimeTick] = useState(Date.now());
   const [joiningSearchId, setJoiningSearchId] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState('');
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -96,6 +97,7 @@ export default function MapScreen() {
 
       const account = await getUserData(db, signedInEmail);
       const accountLocation = account?.location;
+      setCurrentUserId(account?.id || '');
 
       if (!accountLocation?.latitude || !accountLocation?.longitude) {
         setCenter(null);
@@ -143,6 +145,7 @@ export default function MapScreen() {
     } catch (err: any) {
       setCenter(null);
       setAreaSearches([]);
+      setCurrentUserId('');
       setError(err?.message || 'Unable to load location data.');
     } finally {
       setLoading(false);
@@ -238,6 +241,16 @@ export default function MapScreen() {
             ) : (
               areaSearches.map((search: any, index: number) => (
                 <View key={search.id} style={styles.searchCard}>
+                  {(() => {
+                    const searcherIds = Array.isArray(search?.searchers)
+                      ? search.searchers
+                      : Array.isArray(search?.Searchers)
+                      ? search.Searchers
+                      : [];
+                    const isJoined = Boolean(currentUserId && searcherIds.includes(currentUserId));
+
+                    return (
+                      <>
                   <View style={styles.searchNumberBadge}>
                     <ThemedText style={styles.searchNumberBadgeText}>{index + 1}</ThemedText>
                   </View>
@@ -275,10 +288,22 @@ export default function MapScreen() {
 
                   <TouchableOpacity
                     style={styles.joinSearchButton}
-                    onPress={() => handleJoinSearch(search.id)}
-                    disabled={joiningSearchId === search.id}>
-                    <ThemedText style={styles.joinSearchButtonText}>{joiningSearchId === search.id ? 'Joining...' : 'Join Search'}</ThemedText>
+                    onPress={() => {
+                      if (isJoined) {
+                        router.push({ pathname: '/search/[id]', params: { id: search.id } } as any);
+                        return;
+                      }
+
+                      void handleJoinSearch(search.id);
+                    }}
+                    disabled={!isJoined && joiningSearchId === search.id}>
+                    <ThemedText style={styles.joinSearchButtonText}>
+                      {isJoined ? 'Search Details' : joiningSearchId === search.id ? 'Joining...' : 'Join Search'}
+                    </ThemedText>
                   </TouchableOpacity>
+                      </>
+                    );
+                  })()}
                 </View>
               ))
             )}

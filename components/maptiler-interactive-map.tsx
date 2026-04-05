@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Image, LayoutChangeEvent, PanResponder, Platform, StyleSheet, View, ViewStyle } from 'react-native';
+import { Image, LayoutChangeEvent, PanResponder, Platform, StyleSheet, TouchableOpacity, View, ViewStyle } from 'react-native';
 import { IconSymbol } from './ui/icon-symbol';
 import { ThemedText } from './themed-text';
 
@@ -19,13 +19,20 @@ type Props = {
   radiusBorderColor?: string;
   centerMarker?: 'dot' | 'house';
   centerMarkerColor?: string;
+  centerMarkerSize?: number;
+  radiusVisualScale?: number;
+  markerSize?: number;
   markers?: Array<{
+    id?: string;
     latitude: number;
     longitude: number;
     label: string;
     color?: string;
     textColor?: string;
+    onPress?: () => void;
   }>;
+  onMapPress?: (coordinate: Coordinate) => void;
+  onInteractionChange?: (isInteracting: boolean) => void;
 };
 
 const TILE_SIZE = 256;
@@ -79,7 +86,7 @@ function isValidCenter(center: Coordinate) {
   return Number.isFinite(center.latitude) && Number.isFinite(center.longitude);
 }
 
-export function MapTilerTileMap({
+export function MapTilerInteractiveMap({
   center,
   radiusMiles,
   apiKey,
@@ -90,7 +97,12 @@ export function MapTilerTileMap({
   radiusBorderColor = 'rgba(0, 102, 255, 0.75)',
   centerMarker = 'dot',
   centerMarkerColor = '#0a5df0',
+  centerMarkerSize = 18,
+  radiusVisualScale = 1,
+  markerSize = 22,
   markers = [],
+  onMapPress,
+  onInteractionChange,
 }: Props) {
   const containerRef = useRef<any>(null);
   const [layout, setLayout] = useState({ width: 320, height: 240 });
@@ -99,6 +111,7 @@ export function MapTilerTileMap({
   const [zoomLevel, setZoomLevel] = useState(zoom);
   const [hasUserZoomed, setHasUserZoomed] = useState(false);
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
+  const panOffsetRef = useRef({ x: 0, y: 0 });
   const [pinchScale, setPinchScale] = useState(1);
   const gestureModeRef = useRef<'none' | 'pan' | 'pinch'>('none');
   const pinchStartDistanceRef = useRef(0);
@@ -151,6 +164,30 @@ export function MapTilerTileMap({
     const clamped = Math.min(radiusPx, maxVisibleRadiusPx);
     return Math.max(8, clamped);
   }, [effectiveZoom, geoCenter, layout.height, layout.width, radiusMiles]);
+
+  const clampedRadiusVisualScale = useMemo(() => {
+    if (!Number.isFinite(radiusVisualScale)) {
+      return 1;
+    }
+
+    return Math.max(0.35, Math.min(1, radiusVisualScale));
+  }, [radiusVisualScale]);
+
+  const clampedMarkerSize = useMemo(() => {
+    if (!Number.isFinite(markerSize)) {
+      return 22;
+    }
+
+    return Math.max(12, Math.min(32, markerSize));
+  }, [markerSize]);
+
+  const clampedCenterMarkerSize = useMemo(() => {
+    if (!Number.isFinite(centerMarkerSize)) {
+      return 18;
+    }
+
+    return Math.max(10, Math.min(28, centerMarkerSize));
+  }, [centerMarkerSize]);
 
   const overlayCenter = useMemo(() => {
     if (!isValidCenter(geoCenter) || !isValidCenter(viewCenter)) {
@@ -217,7 +254,7 @@ export function MapTilerTileMap({
 
   const markerPositions = useMemo(() => {
     if (!isValidCenter(viewCenter) || !Array.isArray(markers) || markers.length === 0) {
-      return [] as Array<{ key: string; x: number; y: number; label: string; color: string; textColor: string }>;
+      return [] as Array<{ key: string; x: number; y: number; label: string; color: string; textColor: string; onPress?: () => void }>;
     }
 
     const worldTiles = Math.pow(2, tileZoom);
@@ -238,15 +275,34 @@ export function MapTilerTileMap({
         }
 
         return {
-          key: `marker-${index}-${marker.label}`,
+          key: marker.id || `marker-${index}-${marker.label}`,
           x: layout.width / 2 + deltaTileX * TILE_SIZE + panOffset.x,
           y: layout.height / 2 + (markerTileY - viewTileY) * TILE_SIZE + panOffset.y,
           label: marker.label,
           color: marker.color || '#0a5df0',
           textColor: marker.textColor || '#ffffff',
+          onPress: marker.onPress,
         };
       });
   }, [layout.height, layout.width, markers, panOffset.x, panOffset.y, tileZoom, viewCenter]);
+
+  const screenPointToCoordinate = (x: number, y: number) => {
+    if (!isValidCenter(viewCenter)) {
+      return null;
+    }
+
+    const viewTileX = longitudeToTileX(viewCenter.longitude, tileZoom);
+    const viewTileY = latitudeToTileY(viewCenter.latitude, tileZoom);
+    const nextTileX = viewTileX + (x - layout.width / 2 - panOffset.x) / TILE_SIZE;
+    const nextTileY = viewTileY + (y - layout.height / 2 - panOffset.y) / TILE_SIZE;
+    const maxTileIndex = Math.pow(2, tileZoom) - 1;
+    const clampedTileY = Math.max(0, Math.min(maxTileIndex, nextTileY));
+
+    return {
+      latitude: Math.max(-MAX_LATITUDE, Math.min(MAX_LATITUDE, tileYToLatitude(clampedTileY, tileZoom))),
+      longitude: tileXToLongitude(nextTileX, tileZoom),
+    };
+  };
 
   const calculateTouchDistance = (touches: Array<{ pageX: number; pageY: number }>) => {
     if (touches.length < 2) {
@@ -282,9 +338,15 @@ export function MapTilerTileMap({
     () =>
       PanResponder.create({
         onStartShouldSetPanResponder: () => true,
+        onStartShouldSetPanResponderCapture: () => true,
         onMoveShouldSetPanResponder: () => true,
         onMoveShouldSetPanResponderCapture: () => true,
+        onPanResponderTerminationRequest: () => false,
         onPanResponderGrant: (event) => {
+          if (typeof onInteractionChange === 'function') {
+            onInteractionChange(true);
+          }
+
           const touches = event.nativeEvent.touches;
 
           if (touches.length >= 2) {
@@ -292,8 +354,11 @@ export function MapTilerTileMap({
             pinchStartDistanceRef.current = calculateTouchDistance(touches as Array<{ pageX: number; pageY: number }>);
             pinchStartZoomRef.current = effectiveZoomRef.current;
             setPanOffset({ x: 0, y: 0 });
+            panOffsetRef.current = { x: 0, y: 0 };
           } else {
             gestureModeRef.current = 'pan';
+            setPanOffset({ x: 0, y: 0 });
+            panOffsetRef.current = { x: 0, y: 0 };
           }
         },
         onPanResponderMove: (event, gestureState) => {
@@ -307,6 +372,7 @@ export function MapTilerTileMap({
               pinchStartDistanceRef.current = distance;
               pinchStartZoomRef.current = effectiveZoomRef.current;
               setPanOffset({ x: 0, y: 0 });
+              panOffsetRef.current = { x: 0, y: 0 };
               return;
             }
 
@@ -319,32 +385,51 @@ export function MapTilerTileMap({
 
           if (gestureModeRef.current !== 'pinch') {
             gestureModeRef.current = 'pan';
-            setPanOffset({ x: gestureState.dx, y: gestureState.dy });
+            const nextOffset = { x: gestureState.dx, y: gestureState.dy };
+            panOffsetRef.current = nextOffset;
+            setPanOffset(nextOffset);
           }
         },
-        onPanResponderRelease: (_event, gestureState) => {
+        onPanResponderRelease: (_event) => {
           if (gestureModeRef.current === 'pinch') {
             const deltaZoom = Math.log2(Math.max(0.5, Math.min(3, pinchScale)));
             const nextZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, pinchStartZoomRef.current + deltaZoom));
             setHasUserZoomed(true);
             setZoomLevel(nextZoom);
           } else if (gestureModeRef.current === 'pan') {
-            commitPanToCenter(gestureState.dx, gestureState.dy);
+            const isTap = Math.abs(panOffsetRef.current.x) < 8 && Math.abs(panOffsetRef.current.y) < 8;
+            if (isTap && typeof onMapPress === 'function') {
+              const nativeEvent = (_event as any)?.nativeEvent;
+              const pressedCoordinate = screenPointToCoordinate(nativeEvent?.locationX ?? 0, nativeEvent?.locationY ?? 0);
+              if (pressedCoordinate) {
+                onMapPress(pressedCoordinate);
+              }
+            } else {
+              commitPanToCenter(panOffsetRef.current.x, panOffsetRef.current.y);
+            }
           }
 
           gestureModeRef.current = 'none';
           pinchStartDistanceRef.current = 0;
           setPanOffset({ x: 0, y: 0 });
+          panOffsetRef.current = { x: 0, y: 0 };
           setPinchScale(1);
+          if (typeof onInteractionChange === 'function') {
+            onInteractionChange(false);
+          }
         },
         onPanResponderTerminate: () => {
           gestureModeRef.current = 'none';
           pinchStartDistanceRef.current = 0;
           setPanOffset({ x: 0, y: 0 });
+          panOffsetRef.current = { x: 0, y: 0 };
           setPinchScale(1);
+          if (typeof onInteractionChange === 'function') {
+            onInteractionChange(false);
+          }
         },
       }),
-    [pinchScale, tileZoom, viewCenter]
+    [onInteractionChange, onMapPress, panOffset.x, panOffset.y, pinchScale, tileZoom, viewCenter]
   );
 
   const wheelHandlers = useMemo(() => {
@@ -431,30 +516,50 @@ export function MapTilerTileMap({
         style={[
           styles.radiusCircle,
           {
-            width: radiusPixelSize * 2 * pinchScale,
-            height: radiusPixelSize * 2 * pinchScale,
-            borderRadius: radiusPixelSize * pinchScale,
+            width: radiusPixelSize * 2 * pinchScale * clampedRadiusVisualScale,
+            height: radiusPixelSize * 2 * pinchScale * clampedRadiusVisualScale,
+            borderRadius: radiusPixelSize * pinchScale * clampedRadiusVisualScale,
             left: overlayCenter.x,
             top: overlayCenter.y,
             borderColor: radiusBorderColor,
             backgroundColor: radiusFillColor,
-            transform: [{ translateX: -radiusPixelSize * pinchScale }, { translateY: -radiusPixelSize * pinchScale }],
+            transform: [
+              { translateX: -radiusPixelSize * pinchScale * clampedRadiusVisualScale },
+              { translateY: -radiusPixelSize * pinchScale * clampedRadiusVisualScale },
+            ],
           },
         ]}
       />
 
       {centerMarker === 'house' ? (
-        <View style={[styles.centerIconContainer, { left: overlayCenter.x, top: overlayCenter.y }]}>
-          <IconSymbol size={18} name="house.fill" color={centerMarkerColor} />
+        <View style={[styles.centerIconContainer, { left: overlayCenter.x, top: overlayCenter.y }]}> 
+          <IconSymbol size={clampedCenterMarkerSize} name="house.fill" color={centerMarkerColor} />
         </View>
       ) : (
         <View style={[styles.centerDot, { left: overlayCenter.x, top: overlayCenter.y, backgroundColor: centerMarkerColor }]} />
       )}
 
       {markerPositions.map((marker) => (
-        <View key={marker.key} style={[styles.numberMarker, { left: marker.x, top: marker.y, backgroundColor: marker.color }]}>
-          <ThemedText style={[styles.numberMarkerText, { color: marker.textColor }]}>{marker.label}</ThemedText>
-        </View>
+        <TouchableOpacity
+          key={marker.key}
+          activeOpacity={marker.onPress ? 0.8 : 1}
+          disabled={!marker.onPress}
+          onPress={marker.onPress}
+          style={[
+            styles.numberMarker,
+            {
+              left: marker.x,
+              top: marker.y,
+              backgroundColor: marker.color,
+              width: clampedMarkerSize,
+              height: clampedMarkerSize,
+              marginLeft: -clampedMarkerSize / 2,
+              marginTop: -clampedMarkerSize / 2,
+              borderRadius: clampedMarkerSize / 2,
+            },
+          ]}>
+          <ThemedText style={[styles.numberMarkerText, { color: marker.textColor, fontSize: Math.max(9, clampedMarkerSize * 0.5) }]}>{marker.label}</ThemedText>
+        </TouchableOpacity>
       ))}
     </View>
   );
@@ -494,11 +599,6 @@ const styles = StyleSheet.create({
   },
   numberMarker: {
     position: 'absolute',
-    width: 22,
-    height: 22,
-    marginLeft: -11,
-    marginTop: -11,
-    borderRadius: 11,
     backgroundColor: '#0a5df0',
     justifyContent: 'center',
     alignItems: 'center',
@@ -509,6 +609,6 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 11,
     fontWeight: '700',
-    lineHeight: 14,
+    lineHeight: 13,
   },
 });

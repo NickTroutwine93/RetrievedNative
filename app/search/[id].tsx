@@ -1,19 +1,46 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Image, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { MapTilerTileMap } from '../../components/maptiler-tile-map';
+import { MapTilerTileMap } from '@/components/maptiler-tile-map';
+import { IconSymbol } from '../../components/ui/icon-symbol';
 import { ThemedText } from '../../components/themed-text';
 import { ThemedView } from '../../components/themed-view';
 import { auth, db } from '../../src/services/firebaseClient';
-import { getSearchById, getUserData } from '../../src/services/userService';
+import { getSearchById, getUserData, leaveSearch } from '../../src/services/userService';
 
 const MAPTILER_KEY = process.env.EXPO_PUBLIC_MAPTILER_API_KEY;
 const petImageSources: Record<string, any> = {
   'Rigby.jpg': require('../../assets/pets/Rigby.jpg'),
   'Taz.jpg': require('../../assets/pets/Taz.jpg'),
 };
+
+function getConfidenceColor(confidence: number) {
+  const value = Number(confidence);
+  if (value <= 1) {
+    return '#d64545';
+  }
+
+  if (value === 2) {
+    return '#e67e22';
+  }
+
+  if (value === 3) {
+    return '#f1c40f';
+  }
+
+  if (value === 4) {
+    return '#6ab04c';
+  }
+
+  return '#2ecc71';
+}
+
+function getConfidenceTextColor(confidence: number) {
+  const value = Number(confidence);
+  return value === 3 ? '#2b2b2b' : '#ffffff';
+}
 
 export default function SearchDetailScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
@@ -23,6 +50,7 @@ export default function SearchDetailScreen() {
   const [relativeTimeTick, setRelativeTimeTick] = useState(Date.now());
   const [currentUserId, setCurrentUserId] = useState('');
   const [selectedSighting, setSelectedSighting] = useState<any>(null);
+  const [leavingSearch, setLeavingSearch] = useState(false);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -96,6 +124,7 @@ export default function SearchDetailScreen() {
     : [];
   const ownerId = search?.owner ?? search?.OwnerID;
   const canAddSighting = Boolean(currentUserId && ownerId && currentUserId !== ownerId && searcherIds.includes(currentUserId));
+  const canLeaveSearch = canAddSighting;
   const sightingsWithIndex = Array.isArray(search?.sightings)
     ? search.sightings.map((sighting: any, index: number) => ({
         ...sighting,
@@ -108,9 +137,8 @@ export default function SearchDetailScreen() {
         latitude: sighting.latitude,
         longitude: sighting.longitude,
         label: String(sighting.markerIndex),
-        color: selectedSighting?.id === sighting.id ? '#d23f31' : '#f59f00',
-        textColor: '#ffffff',
-        onPress: () => setSelectedSighting(sighting),
+        color: getConfidenceColor(sighting.confidence),
+        textColor: getConfidenceTextColor(sighting.confidence),
       }))
     : [];
 
@@ -184,10 +212,27 @@ export default function SearchDetailScreen() {
     return `${days}d ago`;
   };
 
+  const handleLeaveSearch = async () => {
+    if (!id) {
+      return;
+    }
+
+    try {
+      setLeavingSearch(true);
+      await leaveSearch(db, id, auth.currentUser?.email ?? '');
+      router.replace('/(tabs)/map' as any);
+    } catch (leaveError: any) {
+      Alert.alert('Leave failed', leaveError?.message || 'Unable to leave this search right now.');
+    } finally {
+      setLeavingSearch(false);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <ThemedView style={styles.header}>
         <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+          <IconSymbol size={18} name="chevron.right" color="#ffffff" style={styles.backIcon} />
           <ThemedText style={styles.backButtonText}>Back</ThemedText>
         </TouchableOpacity>
         <ThemedText type="title" style={styles.headerTitle}>Search Details</ThemedText>
@@ -239,6 +284,11 @@ export default function SearchDetailScreen() {
               {canAddSighting ? (
                 <TouchableOpacity style={styles.addSightingButton} onPress={() => router.push({ pathname: '/search/[id]/sighting', params: { id } } as any)}>
                   <ThemedText style={styles.addSightingButtonText}>Add Sighting</ThemedText>
+                </TouchableOpacity>
+              ) : null}
+              {canLeaveSearch ? (
+                <TouchableOpacity style={styles.leaveSearchButton} onPress={handleLeaveSearch} disabled={leavingSearch}>
+                  <ThemedText style={styles.leaveSearchButtonText}>{leavingSearch ? 'Leaving...' : 'Leave Search'}</ThemedText>
                 </TouchableOpacity>
               ) : null}
               {showMap ? (
@@ -295,8 +345,8 @@ export default function SearchDetailScreen() {
                         key={sighting.id}
                         style={[styles.sightingTile, isSelected && styles.sightingTileSelected]}
                         onPress={() => setSelectedSighting(sighting)}>
-                        <View style={styles.sightingTileBadge}>
-                          <ThemedText style={styles.sightingTileBadgeText}>{sighting.markerIndex}</ThemedText>
+                        <View style={[styles.sightingTileBadge, { backgroundColor: getConfidenceColor(sighting.confidence) }]}>
+                          <ThemedText style={[styles.sightingTileBadgeText, { color: getConfidenceTextColor(sighting.confidence) }]}>{sighting.markerIndex}</ThemedText>
                         </View>
                         <ThemedText style={styles.sightingTileTitle}>Sighting #{sighting.markerIndex}</ThemedText>
                         <ThemedText style={styles.sightingTileMeta}>Reported by {sighting.reporterName} • {formatRelativeTime(sighting.createdAt)}</ThemedText>
@@ -339,10 +389,16 @@ const styles = StyleSheet.create({
   },
   backButton: {
     alignSelf: 'flex-start',
-    backgroundColor: '#0a5df0',
+    backgroundColor: '#3d3d3d',
     borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: 12,
     paddingVertical: 8,
+  },
+  backIcon: {
+    transform: [{ rotate: '180deg' }],
+    marginRight: 4,
   },
   backButtonText: {
     color: '#fff',
@@ -409,12 +465,23 @@ const styles = StyleSheet.create({
   },
   addSightingButton: {
     alignSelf: 'flex-start',
-    backgroundColor: '#d23f31',
+    backgroundColor: '#0a5df0',
     borderRadius: 10,
     paddingHorizontal: 14,
     paddingVertical: 10,
   },
   addSightingButtonText: {
+    color: '#ffffff',
+    fontWeight: '700',
+  },
+  leaveSearchButton: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#7b2d20',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  leaveSearchButtonText: {
     color: '#ffffff',
     fontWeight: '700',
   },
@@ -450,15 +517,16 @@ const styles = StyleSheet.create({
   mapMetaCard: {
     position: 'absolute',
     left: 10,
-    right: 10,
+    width: '33%',
     bottom: 10,
-    borderRadius: 10,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
+    borderRadius: 8,
+    paddingVertical: 4,
+    paddingHorizontal: 6,
     backgroundColor: 'rgba(255, 255, 255, 0.92)',
   },
   metaText: {
-    fontSize: 12,
+    fontSize: 11,
+    lineHeight: 14,
     color: '#1d3348',
   },
   sightingCard: {
