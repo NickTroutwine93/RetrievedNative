@@ -8,7 +8,7 @@ import { IconSymbol } from '../../components/ui/icon-symbol';
 import { ThemedText } from '../../components/themed-text';
 import { ThemedView } from '../../components/themed-view';
 import { auth, db } from '../../src/services/firebaseClient';
-import { getSearchById, getUserData, leaveSearch } from '../../src/services/userService';
+import { getSearchById, getUserData, leaveSearch, getSearchMessages, markSearchThreadRead } from '../../src/services/userService';
 
 const MAPTILER_KEY = process.env.EXPO_PUBLIC_MAPTILER_API_KEY;
 const petImageSources: Record<string, any> = {
@@ -42,6 +42,27 @@ function getConfidenceTextColor(confidence: number) {
   return value === 3 ? '#2b2b2b' : '#ffffff';
 }
 
+function toMillis(value: any) {
+  if (!value) {
+    return 0;
+  }
+
+  if (typeof value?.toDate === 'function') {
+    return value.toDate().getTime();
+  }
+
+  if (value instanceof Date) {
+    return value.getTime();
+  }
+
+  if (typeof value === 'number') {
+    return value;
+  }
+
+  const parsed = new Date(value).getTime();
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 export default function SearchDetailScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
   const [search, setSearch] = useState<any>(null);
@@ -49,8 +70,9 @@ export default function SearchDetailScreen() {
   const [error, setError] = useState('');
   const [relativeTimeTick, setRelativeTimeTick] = useState(Date.now());
   const [currentUserId, setCurrentUserId] = useState('');
-  const [selectedSighting, setSelectedSighting] = useState<any>(null);
   const [leavingSearch, setLeavingSearch] = useState(false);
+  const [messages, setMessages] = useState<any[]>([]);
+  const [messagesExpanded, setMessagesExpanded] = useState(false);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -76,9 +98,10 @@ export default function SearchDetailScreen() {
         return;
       }
 
-      const [searchData, account] = await Promise.all([
+      const [searchData, account, messagesData] = await Promise.all([
         getSearchById(db, id),
         getUserData(db, signedInEmail),
+        getSearchMessages(db, id),
       ]);
       if (!searchData) {
         setError('Search not found.');
@@ -88,13 +111,7 @@ export default function SearchDetailScreen() {
 
       setCurrentUserId(account?.id || '');
       setSearch(searchData);
-      setSelectedSighting((prev: any) => {
-        if (!prev?.id) {
-          return searchData?.sightings?.[0] || null;
-        }
-
-        return searchData?.sightings?.find((sighting: any) => sighting.id === prev.id) || searchData?.sightings?.[0] || null;
-      });
+      setMessages(messagesData || []);
     } catch (err: any) {
       setError(err?.message || 'Unable to load search details.');
     } finally {
@@ -141,6 +158,19 @@ export default function SearchDetailScreen() {
         textColor: getConfidenceTextColor(sighting.confidence),
       }))
     : [];
+  const latestMessage = messages.length > 0 ? messages[messages.length - 1] : null;
+  const latestMessageSenderId = latestMessage?.senderId ?? latestMessage?.SenderID ?? '';
+  const messageReadAt = search?.MessageReadAt || {};
+  const currentUserReadAtMs = toMillis(messageReadAt[currentUserId]);
+  const latestMessageAtMs = toMillis(latestMessage?.createdAt);
+  const hasUnreadMessages = Boolean(
+    !messagesExpanded &&
+      latestMessage &&
+      latestMessageAtMs > currentUserReadAtMs &&
+      latestMessageSenderId &&
+      currentUserId &&
+      latestMessageSenderId !== currentUserId
+  );
 
   const formatTimeSinceSearch = (searchDate: any) => {
     if (!searchDate) {
@@ -225,6 +255,34 @@ export default function SearchDetailScreen() {
       Alert.alert('Leave failed', leaveError?.message || 'Unable to leave this search right now.');
     } finally {
       setLeavingSearch(false);
+    }
+  };
+
+  const handleToggleMessages = async () => {
+    const nextExpanded = !messagesExpanded;
+    setMessagesExpanded(nextExpanded);
+
+    if (!nextExpanded || !id || !currentUserId) {
+      return;
+    }
+
+    try {
+      await markSearchThreadRead(db, id, currentUserId);
+      setSearch((prev: any) => {
+        if (!prev) {
+          return prev;
+        }
+
+        return {
+          ...prev,
+          MessageReadAt: {
+            ...(prev.MessageReadAt || {}),
+            [currentUserId]: new Date(),
+          },
+        };
+      });
+    } catch {
+      // Keep UI responsive even if read receipt update fails.
     }
   };
 
@@ -320,16 +378,7 @@ export default function SearchDetailScreen() {
                 </View>
               )}
 
-              {selectedSighting ? (
-                <View style={styles.sightingCard}>
-                  <ThemedText style={styles.sightingTitle}>Latest Selected Sighting</ThemedText>
-                  <ThemedText style={styles.sightingMeta}>Reported by {selectedSighting.reporterName} • {formatRelativeTime(selectedSighting.createdAt)}</ThemedText>
-                  <ThemedText style={styles.sightingMeta}>Confidence: {selectedSighting.confidence}/5</ThemedText>
-                  <ThemedText style={styles.sightingMeta}>Marker: #{sightingsWithIndex.findIndex((s: any) => s.id === selectedSighting.id) + 1}</ThemedText>
-                  <ThemedText style={styles.sightingMeta}>Coordinates: {selectedSighting.latitude.toFixed(6)}, {selectedSighting.longitude.toFixed(6)}</ThemedText>
-                  <ThemedText style={styles.sightingDetails}>{selectedSighting.details || 'No additional details were provided.'}</ThemedText>
-                </View>
-              ) : sightingsWithIndex.length === 0 ? (
+              {sightingsWithIndex.length === 0 ? (
                 <View style={styles.sightingCard}>
                   <ThemedText style={styles.sightingTitle}>No Sightings Yet</ThemedText>
                   <ThemedText style={styles.sightingDetails}>When joined searchers report sightings, they will appear on the map as numbered markers here.</ThemedText>
@@ -339,22 +388,69 @@ export default function SearchDetailScreen() {
               {sightingsWithIndex.length > 0 ? (
                 <View style={styles.sightingTilesSection}>
                   {sightingsWithIndex.map((sighting: any) => {
-                    const isSelected = selectedSighting?.id === sighting.id;
                     return (
                       <TouchableOpacity
                         key={sighting.id}
-                        style={[styles.sightingTile, isSelected && styles.sightingTileSelected]}
-                        onPress={() => setSelectedSighting(sighting)}>
+                        style={styles.sightingTile}>
                         <View style={[styles.sightingTileBadge, { backgroundColor: getConfidenceColor(sighting.confidence) }]}>
                           <ThemedText style={[styles.sightingTileBadgeText, { color: getConfidenceTextColor(sighting.confidence) }]}>{sighting.markerIndex}</ThemedText>
                         </View>
                         <ThemedText style={styles.sightingTileTitle}>Sighting #{sighting.markerIndex}</ThemedText>
                         <ThemedText style={styles.sightingTileMeta}>Reported by {sighting.reporterName} • {formatRelativeTime(sighting.createdAt)}</ThemedText>
-                        <ThemedText style={styles.sightingTileMeta}>Confidence: {sighting.confidence}/5</ThemedText>
-                        <ThemedText style={styles.sightingTileMeta}>Coords: {sighting.latitude.toFixed(5)}, {sighting.longitude.toFixed(5)}</ThemedText>
+                        <ThemedText style={styles.sightingTileMeta}>Confidence: {sighting.confidence}/5 • {sighting.latitude.toFixed(5)}, {sighting.longitude.toFixed(5)}</ThemedText>
+                        {sighting.details ? (
+                          <ThemedText style={styles.sightingTileDetails}>{sighting.details}</ThemedText>
+                        ) : null}
                       </TouchableOpacity>
                     );
                   })}
+                </View>
+              ) : null}
+            </View>
+
+            <View style={styles.messagesContainer}>
+              <TouchableOpacity
+                style={[styles.messagesHeaderButton, messagesExpanded && styles.messagesHeaderButtonExpanded]}
+                onPress={handleToggleMessages}
+                activeOpacity={0.7}>
+                <View style={styles.messagesHeaderContent}>
+                  <View style={styles.messagesHeaderTextWrap}>
+                    <ThemedText type="subtitle" style={styles.sectionTitle}>Messages ({messages.length})</ThemedText>
+                    {!messagesExpanded ? <ThemedText style={styles.messagesHintText}>Tap to expand</ThemedText> : null}
+                  </View>
+                  <View style={styles.messagesChevronWrap}>
+                    <IconSymbol
+                      size={18}
+                      name="chevron.right"
+                      color="#0a5df0"
+                      style={messagesExpanded ? styles.messagesChevronIconExpanded : undefined}
+                    />
+                    {hasUnreadMessages ? <View style={styles.messagesUnreadBadge} /> : null}
+                  </View>
+                </View>
+              </TouchableOpacity>
+
+              {messagesExpanded ? (
+                <View style={styles.messagesSection}>
+                  {messages.length === 0 ? (
+                    <ThemedText style={styles.placeholderText}>No messages for this search yet.</ThemedText>
+                  ) : (
+                    messages.map((message: any) => {
+                      const messageSenderId = message.senderId ?? message.SenderID ?? '';
+                      const isOwnMessage = Boolean(currentUserId && messageSenderId && messageSenderId === currentUserId);
+                      return (
+                        <View key={message.id} style={[styles.messageRow, isOwnMessage ? styles.messageRowOwn : styles.messageRowOther]}>
+                          <View style={[styles.messageBubble, isOwnMessage ? styles.messageBubbleOwn : styles.messageBubbleOther]}>
+                            <View style={[styles.messageHeader, isOwnMessage ? styles.messageHeaderOwn : styles.messageHeaderOther]}>
+                              <ThemedText style={styles.messageSender}>{message.senderName}</ThemedText>
+                              <ThemedText style={styles.messageTime}>{formatRelativeTime(message.createdAt)}</ThemedText>
+                            </View>
+                            <ThemedText style={[styles.messageText, isOwnMessage && styles.messageTextOwn]}>{message.text}</ThemedText>
+                          </View>
+                        </View>
+                      );
+                    })
+                  )}
                 </View>
               ) : null}
             </View>
@@ -530,25 +626,26 @@ const styles = StyleSheet.create({
     color: '#1d3348',
   },
   sightingCard: {
-    gap: 6,
-    padding: 14,
+    gap: 4,
+    padding: 10,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: '#f1c38a',
     backgroundColor: '#fff7ea',
   },
   sightingTitle: {
-    fontSize: 17,
+    fontSize: 14,
     fontWeight: '700',
     color: '#5b3c00',
   },
   sightingMeta: {
-    fontSize: 13,
+    fontSize: 12,
     color: '#6d5331',
+    lineHeight: 16,
   },
   sightingDetails: {
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 13,
+    lineHeight: 18,
     color: '#3b3226',
   },
   sightingTilesSection: {
@@ -556,21 +653,17 @@ const styles = StyleSheet.create({
   },
   sightingTile: {
     position: 'relative',
-    gap: 5,
-    padding: 12,
+    gap: 2,
+    padding: 10,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: '#d7e3ee',
     backgroundColor: '#f7fbff',
   },
-  sightingTileSelected: {
-    borderColor: '#d23f31',
-    backgroundColor: '#fff4f2',
-  },
   sightingTileBadge: {
     position: 'absolute',
-    top: 8,
-    right: 8,
+    top: 6,
+    right: 6,
     minWidth: 24,
     height: 24,
     borderRadius: 12,
@@ -582,18 +675,24 @@ const styles = StyleSheet.create({
   sightingTileBadgeText: {
     color: '#ffffff',
     fontWeight: '700',
-    fontSize: 12,
+    fontSize: 11,
   },
   sightingTileTitle: {
-    fontSize: 15,
+    fontSize: 13,
     fontWeight: '700',
     color: '#21384e',
     paddingRight: 32,
   },
   sightingTileMeta: {
-    fontSize: 13,
+    fontSize: 11,
     color: '#4e667c',
-    lineHeight: 18,
+    lineHeight: 15,
+  },
+  sightingTileDetails: {
+    fontSize: 12,
+    lineHeight: 16,
+    color: '#1d3348',
+    marginTop: 2,
   },
   placeholderBox: {
     padding: 20,
@@ -612,5 +711,125 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: 'center',
     lineHeight: 20,
+  },
+  messagesHeaderButton: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#c8dcf0',
+    backgroundColor: '#eef6ff',
+  },
+  messagesContainer: {
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  messagesHeaderButtonExpanded: {
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+  },
+  messagesHeaderContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  messagesHeaderTextWrap: {
+    flex: 1,
+    gap: 2,
+  },
+  messagesHintText: {
+    fontSize: 12,
+    color: '#4f6b82',
+    fontWeight: '600',
+  },
+  messagesChevronWrap: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#dcebfb',
+    borderWidth: 1,
+    borderColor: '#b8d4f0',
+  },
+  messagesChevronIconExpanded: {
+    transform: [{ rotate: '-90deg' }],
+  },
+  messagesUnreadBadge: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#d64545',
+    borderWidth: 1,
+    borderColor: '#ffffff',
+  },
+  messagesSection: {
+    gap: 8,
+    padding: 12,
+    borderBottomLeftRadius: 12,
+    borderBottomRightRadius: 12,
+    borderTopLeftRadius: 0,
+    borderTopRightRadius: 0,
+    borderWidth: 1,
+    borderTopWidth: 0,
+    borderColor: '#d1e0f0',
+    backgroundColor: '#f0f7ff',
+  },
+  messageRow: {
+    width: '100%',
+  },
+  messageRowOwn: {
+    alignItems: 'flex-end',
+  },
+  messageRowOther: {
+    alignItems: 'flex-start',
+  },
+  messageBubble: {
+    maxWidth: '75%',
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 14,
+    gap: 4,
+  },
+  messageBubbleOwn: {
+    backgroundColor: '#d9ebff',
+    borderTopRightRadius: 6,
+  },
+  messageBubbleOther: {
+    backgroundColor: '#ffffff',
+    borderTopLeftRadius: 6,
+    borderWidth: 1,
+    borderColor: '#d5e6f7',
+  },
+  messageHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  messageHeaderOwn: {
+    justifyContent: 'flex-end',
+  },
+  messageHeaderOther: {
+    justifyContent: 'flex-start',
+  },
+  messageSender: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#0a5df0',
+  },
+  messageTime: {
+    fontSize: 11,
+    color: '#7a8fa3',
+  },
+  messageText: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#1d3348',
+  },
+  messageTextOwn: {
+    textAlign: 'right',
   },
 });

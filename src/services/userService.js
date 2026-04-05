@@ -394,6 +394,9 @@ function mapMessageRecord(messageDoc) {
     SenderID: messageData.SenderID,
     SenderName: messageData.SenderName,
     Text: messageData.Text,
+    senderId: messageData.SenderID,
+    senderName: messageData.SenderName,
+    text: messageData.Text,
     createdAt: messageData.createdAt,
     createdAtMs: toMillis(messageData.createdAt),
   };
@@ -525,6 +528,23 @@ export async function subscribeUserMessageThreads(db, email, onThreads, onError)
       onError(error);
     }
     return () => {};
+  }
+}
+
+export async function getSearchMessages(db, searchId) {
+  try {
+    if (!searchId) {
+      return [];
+    }
+
+    const messagesQuery = query(collection(db, 'searchMessages'), where('SearchID', '==', searchId));
+    const snapshot = await getDocs(messagesQuery);
+    return snapshot.docs
+      .map(mapMessageRecord)
+      .sort((a, b) => a.createdAtMs - b.createdAtMs);
+  } catch (error) {
+    console.error('Error fetching search messages:', error);
+    return [];
   }
 }
 
