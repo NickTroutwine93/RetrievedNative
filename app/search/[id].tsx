@@ -7,7 +7,7 @@ import { MapTilerTileMap } from '../../components/maptiler-tile-map';
 import { ThemedText } from '../../components/themed-text';
 import { ThemedView } from '../../components/themed-view';
 import { auth, db } from '../../src/services/firebaseClient';
-import { getSearchById } from '../../src/services/userService';
+import { getSearchById, getUserData } from '../../src/services/userService';
 
 const MAPTILER_KEY = process.env.EXPO_PUBLIC_MAPTILER_API_KEY;
 const petImageSources: Record<string, any> = {
@@ -21,6 +21,8 @@ export default function SearchDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [relativeTimeTick, setRelativeTimeTick] = useState(Date.now());
+  const [currentUserId, setCurrentUserId] = useState('');
+  const [selectedSighting, setSelectedSighting] = useState<any>(null);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -40,19 +42,31 @@ export default function SearchDetailScreen() {
     setLoading(true);
     setError('');
     try {
-      if (!auth.currentUser?.email) {
+      const signedInEmail = auth.currentUser?.email;
+      if (!signedInEmail) {
         setError('Sign in to view this search.');
         return;
       }
 
-      const searchData = await getSearchById(db, id);
+      const [searchData, account] = await Promise.all([
+        getSearchById(db, id),
+        getUserData(db, signedInEmail),
+      ]);
       if (!searchData) {
         setError('Search not found.');
         setSearch(null);
         return;
       }
 
+      setCurrentUserId(account?.id || '');
       setSearch(searchData);
+      setSelectedSighting((prev: any) => {
+        if (!prev?.id) {
+          return searchData?.sightings?.[0] || null;
+        }
+
+        return searchData?.sightings?.find((sighting: any) => sighting.id === prev.id) || searchData?.sightings?.[0] || null;
+      });
     } catch (err: any) {
       setError(err?.message || 'Unable to load search details.');
     } finally {
@@ -75,6 +89,30 @@ export default function SearchDetailScreen() {
   const hasValidRadius = Number.isFinite(radiusValue) && radiusValue > 0;
   const radiusMiles = hasValidRadius ? radiusValue : 0;
   const showMap = Boolean(center?.latitude && center?.longitude && hasValidRadius && MAPTILER_KEY && !loading && !error);
+  const searcherIds = Array.isArray(search?.searchers)
+    ? search.searchers
+    : Array.isArray(search?.Searchers)
+    ? search.Searchers
+    : [];
+  const ownerId = search?.owner ?? search?.OwnerID;
+  const canAddSighting = Boolean(currentUserId && ownerId && currentUserId !== ownerId && searcherIds.includes(currentUserId));
+  const sightingsWithIndex = Array.isArray(search?.sightings)
+    ? search.sightings.map((sighting: any, index: number) => ({
+        ...sighting,
+        markerIndex: index + 1,
+      }))
+    : [];
+  const sightingMarkers = sightingsWithIndex
+    ? sightingsWithIndex.map((sighting: any) => ({
+        id: sighting.id,
+        latitude: sighting.latitude,
+        longitude: sighting.longitude,
+        label: String(sighting.markerIndex),
+        color: selectedSighting?.id === sighting.id ? '#d23f31' : '#f59f00',
+        textColor: '#ffffff',
+        onPress: () => setSelectedSighting(sighting),
+      }))
+    : [];
 
   const formatTimeSinceSearch = (searchDate: any) => {
     if (!searchDate) {
@@ -109,6 +147,41 @@ export default function SearchDetailScreen() {
 
     const elapsedDays = Math.floor(elapsedHours / 24);
     return `${elapsedDays}d active`;
+  };
+
+  const formatRelativeTime = (value: any) => {
+    if (!value) {
+      return 'Just now';
+    }
+
+    let timestampMs = 0;
+    if (typeof value?.toDate === 'function') {
+      timestampMs = value.toDate().getTime();
+    } else if (value instanceof Date) {
+      timestampMs = value.getTime();
+    } else if (typeof value === 'number') {
+      timestampMs = value;
+    } else {
+      const parsed = new Date(value).getTime();
+      timestampMs = Number.isFinite(parsed) ? parsed : 0;
+    }
+
+    if (!timestampMs) {
+      return 'Just now';
+    }
+
+    const minutes = Math.max(1, Math.floor((relativeTimeTick - timestampMs) / 60000));
+    if (minutes < 60) {
+      return `${minutes}m ago`;
+    }
+
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) {
+      return `${hours}h ago`;
+    }
+
+    const days = Math.floor(hours / 24);
+    return `${days}d ago`;
   };
 
   return (
@@ -163,6 +236,11 @@ export default function SearchDetailScreen() {
 
             <View style={styles.mapSection}>
               <ThemedText type="subtitle" style={styles.sectionTitle}>Search Area</ThemedText>
+              {canAddSighting ? (
+                <TouchableOpacity style={styles.addSightingButton} onPress={() => router.push({ pathname: '/search/[id]/sighting', params: { id } } as any)}>
+                  <ThemedText style={styles.addSightingButtonText}>Add Sighting</ThemedText>
+                </TouchableOpacity>
+              ) : null}
               {showMap ? (
                 <View style={styles.mapWidget}>
                   <MapTilerTileMap
@@ -175,12 +253,14 @@ export default function SearchDetailScreen() {
                     radiusBorderColor="rgba(0, 102, 255, 0.38)"
                     centerMarker="house"
                     centerMarkerColor="#0a5df0"
+                    markers={sightingMarkers}
                     containerStyle={styles.mapTilesLayer}
                   />
 
                   <View style={styles.mapMetaCard}>
                     <ThemedText style={styles.metaText}>Center: {center.latitude.toFixed(6)}, {center.longitude.toFixed(6)}</ThemedText>
                     <ThemedText style={styles.metaText}>Radius: {radiusMiles} miles</ThemedText>
+                    <ThemedText style={styles.metaText}>Sightings: {sightingsWithIndex.length}</ThemedText>
                   </View>
                 </View>
               ) : (
@@ -189,6 +269,44 @@ export default function SearchDetailScreen() {
                   <ThemedText style={styles.placeholderText}>This search is missing a valid location/radius or the MapTiler key is missing.</ThemedText>
                 </View>
               )}
+
+              {selectedSighting ? (
+                <View style={styles.sightingCard}>
+                  <ThemedText style={styles.sightingTitle}>Latest Selected Sighting</ThemedText>
+                  <ThemedText style={styles.sightingMeta}>Reported by {selectedSighting.reporterName} • {formatRelativeTime(selectedSighting.createdAt)}</ThemedText>
+                  <ThemedText style={styles.sightingMeta}>Confidence: {selectedSighting.confidence}/5</ThemedText>
+                  <ThemedText style={styles.sightingMeta}>Marker: #{sightingsWithIndex.findIndex((s: any) => s.id === selectedSighting.id) + 1}</ThemedText>
+                  <ThemedText style={styles.sightingMeta}>Coordinates: {selectedSighting.latitude.toFixed(6)}, {selectedSighting.longitude.toFixed(6)}</ThemedText>
+                  <ThemedText style={styles.sightingDetails}>{selectedSighting.details || 'No additional details were provided.'}</ThemedText>
+                </View>
+              ) : sightingsWithIndex.length === 0 ? (
+                <View style={styles.sightingCard}>
+                  <ThemedText style={styles.sightingTitle}>No Sightings Yet</ThemedText>
+                  <ThemedText style={styles.sightingDetails}>When joined searchers report sightings, they will appear on the map as numbered markers here.</ThemedText>
+                </View>
+              ) : null}
+
+              {sightingsWithIndex.length > 0 ? (
+                <View style={styles.sightingTilesSection}>
+                  {sightingsWithIndex.map((sighting: any) => {
+                    const isSelected = selectedSighting?.id === sighting.id;
+                    return (
+                      <TouchableOpacity
+                        key={sighting.id}
+                        style={[styles.sightingTile, isSelected && styles.sightingTileSelected]}
+                        onPress={() => setSelectedSighting(sighting)}>
+                        <View style={styles.sightingTileBadge}>
+                          <ThemedText style={styles.sightingTileBadgeText}>{sighting.markerIndex}</ThemedText>
+                        </View>
+                        <ThemedText style={styles.sightingTileTitle}>Sighting #{sighting.markerIndex}</ThemedText>
+                        <ThemedText style={styles.sightingTileMeta}>Reported by {sighting.reporterName} • {formatRelativeTime(sighting.createdAt)}</ThemedText>
+                        <ThemedText style={styles.sightingTileMeta}>Confidence: {sighting.confidence}/5</ThemedText>
+                        <ThemedText style={styles.sightingTileMeta}>Coords: {sighting.latitude.toFixed(5)}, {sighting.longitude.toFixed(5)}</ThemedText>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              ) : null}
             </View>
 
             <View style={styles.searchersSection}>
@@ -289,6 +407,17 @@ const styles = StyleSheet.create({
   mapSection: {
     gap: 10,
   },
+  addSightingButton: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#d23f31',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  addSightingButtonText: {
+    color: '#ffffff',
+    fontWeight: '700',
+  },
   searchersSection: {
     gap: 8,
     padding: 12,
@@ -331,6 +460,72 @@ const styles = StyleSheet.create({
   metaText: {
     fontSize: 12,
     color: '#1d3348',
+  },
+  sightingCard: {
+    gap: 6,
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#f1c38a',
+    backgroundColor: '#fff7ea',
+  },
+  sightingTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#5b3c00',
+  },
+  sightingMeta: {
+    fontSize: 13,
+    color: '#6d5331',
+  },
+  sightingDetails: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#3b3226',
+  },
+  sightingTilesSection: {
+    gap: 10,
+  },
+  sightingTile: {
+    position: 'relative',
+    gap: 5,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#d7e3ee',
+    backgroundColor: '#f7fbff',
+  },
+  sightingTileSelected: {
+    borderColor: '#d23f31',
+    backgroundColor: '#fff4f2',
+  },
+  sightingTileBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    minWidth: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#f59f00',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 6,
+  },
+  sightingTileBadgeText: {
+    color: '#ffffff',
+    fontWeight: '700',
+    fontSize: 12,
+  },
+  sightingTileTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#21384e',
+    paddingRight: 32,
+  },
+  sightingTileMeta: {
+    fontSize: 13,
+    color: '#4e667c',
+    lineHeight: 18,
   },
   placeholderBox: {
     padding: 20,

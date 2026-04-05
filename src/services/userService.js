@@ -8,6 +8,7 @@ import {
   getDoc,
   addDoc,
   GeoPoint,
+  Timestamp,
   arrayUnion,
   onSnapshot,
   serverTimestamp,
@@ -27,6 +28,32 @@ function mapPetRecord(petDoc) {
     Size: petData.Size ?? petData.size ?? '',
     Image: petData.Image ?? petData.image ?? null,
     ImageType: petData.ImageType ?? petData.imageType ?? '',
+  };
+}
+
+function mapSightingRecord(sighting, index = 0) {
+  if (!sighting) {
+    return null;
+  }
+
+  const location = sighting.Location ?? sighting.location;
+  const latitude = location?.latitude;
+  const longitude = location?.longitude;
+
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    return null;
+  }
+
+  return {
+    id: sighting.id || `sighting-${index}-${toMillis(sighting.createdAt ?? sighting.CreatedAt)}`,
+    latitude,
+    longitude,
+    confidence: Number(sighting.Confidence ?? sighting.confidence ?? 0),
+    details: sighting.Details ?? sighting.details ?? '',
+    reporterId: sighting.ReporterID ?? sighting.reporterId ?? '',
+    reporterName: sighting.ReporterName ?? sighting.reporterName ?? 'Searcher',
+    createdAt: sighting.createdAt ?? sighting.CreatedAt ?? null,
+    createdAtMs: toMillis(sighting.createdAt ?? sighting.CreatedAt),
   };
 }
 
@@ -62,6 +89,13 @@ async function hydrateSearchRecord(db, searchDoc) {
     )
   ).filter(Boolean);
 
+  const rawSightings = Array.isArray(data.Sightings)
+    ? data.Sightings
+    : Array.isArray(data.sightings)
+    ? data.sightings
+    : [];
+  const sightings = rawSightings.map(mapSightingRecord).filter(Boolean).sort((a, b) => b.createdAtMs - a.createdAtMs);
+
   return {
     id: searchDoc.id,
     ...data,
@@ -72,6 +106,7 @@ async function hydrateSearchRecord(db, searchDoc) {
     petID: petId,
     searchers: searcherIds,
     searcherNames,
+    sightings,
     created: data.created,
     lastUpdated: data.lastUpdated,
     pet: mapPetRecord(petDoc),
@@ -655,6 +690,70 @@ export async function endSearch(db, searchId, wasSuccessful) {
     return true;
   } catch (error) {
     console.error('Error ending search:', error);
+    throw error;
+  }
+}
+
+export async function submitSearchSighting(db, { searchId, reporterId, reporterName, confidence, details, location }) {
+  try {
+    if (!searchId) {
+      throw new Error('Search id is required.');
+    }
+
+    if (!reporterId) {
+      throw new Error('Reporter id is required.');
+    }
+
+    const parsedConfidence = Number(confidence);
+    if (!Number.isFinite(parsedConfidence) || parsedConfidence < 1 || parsedConfidence > 5) {
+      throw new Error('Confidence must be between 1 and 5.');
+    }
+
+    if (!location?.latitude || !location?.longitude) {
+      throw new Error('A valid sighting location is required.');
+    }
+
+    const searchRef = doc(db, 'searches', searchId);
+    const searchSnapshot = await getDoc(searchRef);
+    if (!searchSnapshot.exists()) {
+      throw new Error('Search not found.');
+    }
+
+    const searchData = searchSnapshot.data() || {};
+    const status = searchData.Status ?? searchData.status;
+    if (status !== 1) {
+      throw new Error('Sightings can only be added to active searches.');
+    }
+
+    const ownerId = searchData.OwnerID ?? searchData.owner;
+    const searchers = Array.isArray(searchData.Searchers)
+      ? searchData.Searchers
+      : Array.isArray(searchData.searchers)
+      ? searchData.searchers
+      : [];
+
+    if (reporterId === ownerId || !searchers.includes(reporterId)) {
+      throw new Error('Only joined searchers can add sightings.');
+    }
+
+    const sightingRecord = {
+      id: `${reporterId}-${Date.now()}`,
+      ReporterID: reporterId,
+      ReporterName: reporterName || 'Searcher',
+      Confidence: parsedConfidence,
+      Details: String(details || '').trim(),
+      Location: new GeoPoint(location.latitude, location.longitude),
+      createdAt: Timestamp.now(),
+    };
+
+    await updateDoc(searchRef, {
+      Sightings: arrayUnion(sightingRecord),
+      lastUpdated: serverTimestamp(),
+    });
+
+    return mapSightingRecord(sightingRecord);
+  } catch (error) {
+    console.error('Error submitting search sighting:', error);
     throw error;
   }
 }

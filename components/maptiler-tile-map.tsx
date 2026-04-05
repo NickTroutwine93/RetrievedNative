@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Image, LayoutChangeEvent, PanResponder, Platform, StyleSheet, View, ViewStyle } from 'react-native';
+import { Image, LayoutChangeEvent, PanResponder, Platform, StyleSheet, TouchableOpacity, View, ViewStyle } from 'react-native';
 import { IconSymbol } from './ui/icon-symbol';
 import { ThemedText } from './themed-text';
 
@@ -20,10 +20,15 @@ type Props = {
   centerMarker?: 'dot' | 'house';
   centerMarkerColor?: string;
   markers?: Array<{
+    id?: string;
     latitude: number;
     longitude: number;
     label: string;
+    color?: string;
+    textColor?: string;
+    onPress?: () => void;
   }>;
+  onMapPress?: (coordinate: Coordinate) => void;
 };
 
 const TILE_SIZE = 256;
@@ -89,6 +94,7 @@ export function MapTilerTileMap({
   centerMarker = 'dot',
   centerMarkerColor = '#0a5df0',
   markers = [],
+  onMapPress,
 }: Props) {
   const containerRef = useRef<any>(null);
   const [layout, setLayout] = useState({ width: 320, height: 240 });
@@ -216,7 +222,15 @@ export function MapTilerTileMap({
 
   const markerPositions = useMemo(() => {
     if (!isValidCenter(viewCenter) || !Array.isArray(markers) || markers.length === 0) {
-      return [] as Array<{ key: string; x: number; y: number; label: string }>;
+      return [] as Array<{
+        key: string;
+        x: number;
+        y: number;
+        label: string;
+        color: string;
+        textColor: string;
+        onPress?: () => void;
+      }>;
     }
 
     const worldTiles = Math.pow(2, tileZoom);
@@ -237,13 +251,34 @@ export function MapTilerTileMap({
         }
 
         return {
-          key: `marker-${index}-${marker.label}`,
+          key: marker.id || `marker-${index}-${marker.label}`,
           x: layout.width / 2 + deltaTileX * TILE_SIZE + panOffset.x,
           y: layout.height / 2 + (markerTileY - viewTileY) * TILE_SIZE + panOffset.y,
           label: marker.label,
+          color: marker.color || '#0a5df0',
+          textColor: marker.textColor || '#ffffff',
+          onPress: marker.onPress,
         };
       });
   }, [layout.height, layout.width, markers, panOffset.x, panOffset.y, tileZoom, viewCenter]);
+
+  const screenPointToCoordinate = (x: number, y: number) => {
+    if (!isValidCenter(viewCenter)) {
+      return null;
+    }
+
+    const viewTileX = longitudeToTileX(viewCenter.longitude, tileZoom);
+    const viewTileY = latitudeToTileY(viewCenter.latitude, tileZoom);
+    const nextTileX = viewTileX + (x - layout.width / 2 - panOffset.x) / TILE_SIZE;
+    const nextTileY = viewTileY + (y - layout.height / 2 - panOffset.y) / TILE_SIZE;
+    const maxTileIndex = Math.pow(2, tileZoom) - 1;
+    const clampedTileY = Math.max(0, Math.min(maxTileIndex, nextTileY));
+
+    return {
+      latitude: Math.max(-MAX_LATITUDE, Math.min(MAX_LATITUDE, tileYToLatitude(clampedTileY, tileZoom))),
+      longitude: tileXToLongitude(nextTileX, tileZoom),
+    };
+  };
 
   const calculateTouchDistance = (touches: Array<{ pageX: number; pageY: number }>) => {
     if (touches.length < 2) {
@@ -326,7 +361,16 @@ export function MapTilerTileMap({
             setHasUserZoomed(true);
             setZoomLevel(nextZoom);
           } else if (gestureModeRef.current === 'pan') {
-            commitPanToCenter(gestureState.dx, gestureState.dy);
+            const isTap = Math.abs(gestureState.dx) < 8 && Math.abs(gestureState.dy) < 8;
+            if (isTap && typeof onMapPress === 'function') {
+              const nativeEvent = (_event as any)?.nativeEvent;
+              const pressedCoordinate = screenPointToCoordinate(nativeEvent?.locationX ?? 0, nativeEvent?.locationY ?? 0);
+              if (pressedCoordinate) {
+                onMapPress(pressedCoordinate);
+              }
+            } else {
+              commitPanToCenter(gestureState.dx, gestureState.dy);
+            }
           }
 
           gestureModeRef.current = 'none';
@@ -341,7 +385,7 @@ export function MapTilerTileMap({
           setPinchScale(1);
         },
       }),
-    [pinchScale, tileZoom, viewCenter]
+    [onMapPress, panOffset.x, panOffset.y, pinchScale, tileZoom, viewCenter]
   );
 
   const wheelHandlers = useMemo(() => {
@@ -449,9 +493,14 @@ export function MapTilerTileMap({
       )}
 
       {markerPositions.map((marker) => (
-        <View key={marker.key} style={[styles.numberMarker, { left: marker.x, top: marker.y }]}>
-          <ThemedText style={styles.numberMarkerText}>{marker.label}</ThemedText>
-        </View>
+        <TouchableOpacity
+          key={marker.key}
+          activeOpacity={marker.onPress ? 0.8 : 1}
+          disabled={!marker.onPress}
+          onPress={marker.onPress}
+          style={[styles.numberMarker, { left: marker.x, top: marker.y, backgroundColor: marker.color }]}>
+          <ThemedText style={[styles.numberMarkerText, { color: marker.textColor }]}>{marker.label}</ThemedText>
+        </TouchableOpacity>
       ))}
     </View>
   );
