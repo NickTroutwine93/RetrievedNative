@@ -6,7 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ThemedText } from '../../components/themed-text';
 import { ThemedView } from '../../components/themed-view';
 import { auth, db } from '../../src/services/firebaseClient';
-import { endSearch, getUserSearches } from '../../src/services/userService';
+import { endSearch, getActiveSearches, getUserData, getUserSearches } from '../../src/services/userService';
 
 const petImageSources: Record<string, any> = {
   'Rigby.jpg': require('../../assets/pets/Rigby.jpg'),
@@ -14,7 +14,8 @@ const petImageSources: Record<string, any> = {
 };
 
 export default function SearchesScreen() {
-  const [searches, setSearches] = useState<any>([]);
+  const [ownSearches, setOwnSearches] = useState<any[]>([]);
+  const [joinedSearches, setJoinedSearches] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [relativeTimeTick, setRelativeTimeTick] = useState(Date.now());
   const [endingSearch, setEndingSearch] = useState<any>(null);
@@ -68,12 +69,31 @@ export default function SearchesScreen() {
     try {
       const signedInEmail = auth.currentUser?.email;
       if (!signedInEmail) {
-        setSearches([]);
+        setOwnSearches([]);
+        setJoinedSearches([]);
         return;
       }
 
-      const searchesData = await getUserSearches(db, signedInEmail);
-      setSearches(searchesData);
+      const [searchesData, account, activeSearches] = await Promise.all([
+        getUserSearches(db, signedInEmail),
+        getUserData(db, signedInEmail),
+        getActiveSearches(db),
+      ]);
+
+      const userId = account?.id || '';
+      const joined = activeSearches.filter((search: any) => {
+        const ownerId = search?.owner ?? search?.OwnerID;
+        const searcherIds = Array.isArray(search?.searchers)
+          ? search.searchers
+          : Array.isArray(search?.Searchers)
+          ? search.Searchers
+          : [];
+
+        return Boolean(userId && ownerId !== userId && searcherIds.includes(userId));
+      });
+
+      setOwnSearches(searchesData);
+      setJoinedSearches(joined);
     } catch (error) {
       console.error('Error loading searches:', error);
     } finally {
@@ -95,7 +115,8 @@ export default function SearchesScreen() {
     try {
       setIsEndingSearch(true);
       await endSearch(db, endingSearch.id, wasSuccessful);
-      setSearches((prev: any[]) => prev.filter((search) => search.id !== endingSearch.id));
+      setOwnSearches((prev: any[]) => prev.filter((search) => search.id !== endingSearch.id));
+      setJoinedSearches((prev: any[]) => prev.filter((search) => search.id !== endingSearch.id));
       setEndingSearch(null);
       Alert.alert('Search ended', wasSuccessful ? 'The search was marked as found.' : 'The search was closed as not found.');
     } catch (error: any) {
@@ -103,6 +124,56 @@ export default function SearchesScreen() {
     } finally {
       setIsEndingSearch(false);
     }
+  };
+
+  const renderSearchCards = (items: any[], canEndSearch: boolean) => {
+    if (items.length === 0) {
+      return null;
+    }
+
+    return items.map((search: any) => (
+      <View key={search.id} style={styles.searchCard}>
+        <View style={styles.petCardHeader}>
+          <ThemedText style={styles.petName}>{search?.pet?.Name || 'Unnamed pet'}</ThemedText>
+          <ThemedText style={styles.searchAge}>{formatTimeSinceSearch(search?.Date ?? search?.date)}</ThemedText>
+          <ThemedText style={styles.searchStatus}>Search status: {search.status ?? search.Status ?? 'Unknown'}</ThemedText>
+        </View>
+
+        <View style={styles.petCardRow}>
+          {search?.pet?.Image ? (
+            <Image
+              source={
+                search.pet.Image.startsWith('http')
+                  ? { uri: search.pet.Image }
+                  : petImageSources[search.pet.Image] || require('../../assets/pets/Default.jpg')
+              }
+              style={styles.petImage}
+              resizeMode="cover"
+            />
+          ) : (
+            <View style={styles.petImagePlaceholder}>
+              <ThemedText style={styles.petImageText}>No image</ThemedText>
+            </View>
+          )}
+
+          <View style={styles.petDetails}>
+            <ThemedText>Breed: {search?.pet?.Breed ?? 'Unknown'}</ThemedText>
+            <ThemedText>Color: {Array.isArray(search?.pet?.Color) ? search.pet.Color.join(', ') : search?.pet?.Color ?? 'Unknown'}</ThemedText>
+            <ThemedText>Size: {search?.pet?.Size ?? 'Unknown'}</ThemedText>
+          </View>
+        </View>
+
+        <TouchableOpacity style={styles.openSearchButton} onPress={() => router.push({ pathname: '/search/[id]', params: { id: search.id } } as any)}>
+          <ThemedText style={styles.openSearchButtonText}>Open Details</ThemedText>
+        </TouchableOpacity>
+
+        {canEndSearch ? (
+          <TouchableOpacity style={styles.endSearchButton} onPress={() => setEndingSearch(search)}>
+            <ThemedText style={styles.endSearchButtonText}>End Search</ThemedText>
+          </TouchableOpacity>
+        ) : null}
+      </View>
+    ));
   };
 
   return (
@@ -114,51 +185,25 @@ export default function SearchesScreen() {
       <ScrollView style={styles.scrollContainer} contentContainerStyle={styles.scrollContent}>
         {loading ? (
           <ThemedText>Loading...</ThemedText>
-        ) : searches.length === 0 ? (
-          <ThemedText>No searches found</ThemedText>
         ) : (
           <>
-            {searches.map((search: any) => (
-              <View key={search.id} style={styles.searchCard}>
-                <View style={styles.petCardHeader}>
-                  <ThemedText style={styles.petName}>{search?.pet?.Name || 'Unnamed pet'}</ThemedText>
-                  <ThemedText style={styles.searchAge}>{formatTimeSinceSearch(search?.Date ?? search?.date)}</ThemedText>
-                  <ThemedText style={styles.searchStatus}>Search status: {search.status ?? search.Status ?? 'Unknown'}</ThemedText>
-                </View>
+            <View style={styles.sectionBlock}>
+              <ThemedText style={styles.sectionHeader}>Your Pets</ThemedText>
+              {ownSearches.length === 0 ? (
+                <ThemedText style={styles.emptySectionText}>You have no active searches for your pets.</ThemedText>
+              ) : (
+                renderSearchCards(ownSearches, true)
+              )}
+            </View>
 
-                <View style={styles.petCardRow}>
-                  {search?.pet?.Image ? (
-                    <Image
-                      source={
-                        search.pet.Image.startsWith('http')
-                          ? { uri: search.pet.Image }
-                          : petImageSources[search.pet.Image] || require('../../assets/pets/Default.jpg')
-                      }
-                      style={styles.petImage}
-                      resizeMode="cover"
-                    />
-                  ) : (
-                    <View style={styles.petImagePlaceholder}>
-                      <ThemedText style={styles.petImageText}>No image</ThemedText>
-                    </View>
-                  )}
-
-                  <View style={styles.petDetails}>
-                    <ThemedText>Breed: {search?.pet?.Breed ?? 'Unknown'}</ThemedText>
-                    <ThemedText>Color: {Array.isArray(search?.pet?.Color) ? search.pet.Color.join(', ') : search?.pet?.Color ?? 'Unknown'}</ThemedText>
-                    <ThemedText>Size: {search?.pet?.Size ?? 'Unknown'}</ThemedText>
-                  </View>
-                </View>
-
-                <TouchableOpacity style={styles.openSearchButton} onPress={() => router.push({ pathname: '/search/[id]', params: { id: search.id } } as any)}>
-                  <ThemedText style={styles.openSearchButtonText}>Open Details</ThemedText>
-                </TouchableOpacity>
-
-                <TouchableOpacity style={styles.endSearchButton} onPress={() => setEndingSearch(search)}>
-                  <ThemedText style={styles.endSearchButtonText}>End Search</ThemedText>
-                </TouchableOpacity>
-              </View>
-            ))}
+            <View style={styles.sectionBlock}>
+              <ThemedText style={styles.sectionHeader}>Searches Joined</ThemedText>
+              {joinedSearches.length === 0 ? (
+                <ThemedText style={styles.emptySectionText}>You have not joined any active searches.</ThemedText>
+              ) : (
+                renderSearchCards(joinedSearches, false)
+              )}
+            </View>
           </>
         )}
       </ScrollView>
@@ -208,6 +253,20 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 16,
+  },
+  sectionBlock: {
+    marginBottom: 18,
+  },
+  sectionHeader: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#2B3A4A',
+    marginBottom: 10,
+  },
+  emptySectionText: {
+    fontSize: 14,
+    color: '#4E5B63',
+    marginBottom: 8,
   },
   searchCard: {
     padding: 14,

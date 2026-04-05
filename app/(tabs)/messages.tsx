@@ -55,6 +55,53 @@ export default function MessagesScreen() {
   const [error, setError] = useState('');
   const [currentUserId, setCurrentUserId] = useState('');
 
+  const ownThreads = currentUserId ? threads.filter((thread) => thread.ownerId === currentUserId) : [];
+  const joinedThreads = currentUserId ? threads.filter((thread) => thread.ownerId !== currentUserId) : [];
+
+  const renderThreadCards = (items: any[]) => {
+    if (items.length === 0) {
+      return null;
+    }
+
+    return items.map((thread) => {
+      const isOwner = currentUserId && thread.ownerId === currentUserId;
+      const participants = isOwner
+        ? thread.searcherNames?.length
+          ? thread.searcherNames.join(', ')
+          : 'No active searchers yet'
+        : thread.ownerName || 'Pet owner';
+
+      return (
+        <TouchableOpacity
+          key={thread.searchId}
+          style={styles.threadCard}
+          activeOpacity={0.85}
+          onPress={() => router.push({ pathname: '/messages/[id]', params: { id: thread.searchId } } as any)}>
+          <View style={styles.threadHeaderRow}>
+            <ThemedText style={styles.petName}>{thread?.pet?.Name || 'Unnamed pet'}</ThemedText>
+            <View style={styles.threadMetaColumn}>
+              <ThemedText style={styles.timeText}>{formatRelativeTime(thread?.lastMessage?.createdAt || thread?.lastActivityMs)}</ThemedText>
+              {thread.unreadCount > 0 ? (
+                <View style={styles.unreadPill}>
+                  <ThemedText style={styles.unreadPillText}>New</ThemedText>
+                </View>
+              ) : null}
+            </View>
+          </View>
+
+          <ThemedText style={styles.participantText}>
+            {isOwner ? 'Searchers: ' : 'Owner: '}
+            {participants}
+          </ThemedText>
+
+          <ThemedText style={styles.previewText} numberOfLines={2}>
+            {thread?.lastMessage?.Text || 'No messages yet. Tap to start the chat.'}
+          </ThemedText>
+        </TouchableOpacity>
+      );
+    });
+  };
+
   const startLiveThreads = useCallback(async () => {
     setLoading(true);
     setError('');
@@ -126,43 +173,25 @@ export default function MessagesScreen() {
             <ThemedText style={styles.emptyStateBody}>Join an active search in your area or start a search from Home. Threads will appear here automatically.</ThemedText>
           </View>
         ) : (
-          threads.map((thread) => {
-            const isOwner = currentUserId && thread.ownerId === currentUserId;
-            const participants = isOwner
-              ? thread.searcherNames?.length
-                ? thread.searcherNames.join(', ')
-                : 'No active searchers yet'
-              : thread.ownerName || 'Pet owner';
+          <>
+            <View style={styles.sectionBlock}>
+              <ThemedText style={styles.sectionHeader}>Your Pets</ThemedText>
+              {ownThreads.length === 0 ? (
+                <ThemedText style={styles.emptySectionText}>No active message threads for searches you started.</ThemedText>
+              ) : (
+                renderThreadCards(ownThreads)
+              )}
+            </View>
 
-            return (
-              <TouchableOpacity
-                key={thread.searchId}
-                style={styles.threadCard}
-                activeOpacity={0.85}
-                onPress={() => router.push({ pathname: '/messages/[id]', params: { id: thread.searchId } } as any)}>
-                <View style={styles.threadHeaderRow}>
-                  <ThemedText style={styles.petName}>{thread?.pet?.Name || 'Unnamed pet'}</ThemedText>
-                  <View style={styles.threadMetaColumn}>
-                    <ThemedText style={styles.timeText}>{formatRelativeTime(thread?.lastMessage?.createdAt || thread?.lastActivityMs)}</ThemedText>
-                    {thread.unreadCount > 0 ? (
-                      <View style={styles.unreadPill}>
-                        <ThemedText style={styles.unreadPillText}>New</ThemedText>
-                      </View>
-                    ) : null}
-                  </View>
-                </View>
-
-                <ThemedText style={styles.participantText}>
-                  {isOwner ? 'Searchers: ' : 'Owner: '}
-                  {participants}
-                </ThemedText>
-
-                <ThemedText style={styles.previewText} numberOfLines={2}>
-                  {thread?.lastMessage?.Text || 'No messages yet. Tap to start the chat.'}
-                </ThemedText>
-              </TouchableOpacity>
-            );
-          })
+            <View style={styles.sectionBlock}>
+              <ThemedText style={styles.sectionHeader}>Searches Joined</ThemedText>
+              {joinedThreads.length === 0 ? (
+                <ThemedText style={styles.emptySectionText}>No message threads from joined searches yet.</ThemedText>
+              ) : (
+                renderThreadCards(joinedThreads)
+              )}
+            </View>
+          </>
         )}
       </ScrollView>
     </SafeAreaView>
@@ -195,6 +224,20 @@ const styles = StyleSheet.create({
   scrollContent: {
     padding: 16,
     gap: 12,
+  },
+  sectionBlock: {
+    marginBottom: 10,
+  },
+  sectionHeader: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#2B3A4A',
+    marginBottom: 10,
+  },
+  emptySectionText: {
+    fontSize: 14,
+    color: '#4E5B63',
+    marginBottom: 8,
   },
   emptyStateBox: {
     borderWidth: 1,
