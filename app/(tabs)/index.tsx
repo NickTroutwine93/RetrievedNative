@@ -678,13 +678,6 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.appHeader}>
-        <ThemedText style={styles.logoText}>Retrieved</ThemedText>
-        <View style={styles.avatarCircle}>
-          <ThemedText style={styles.avatarText}>{(user?.firstName?.[0] ?? 'U').toUpperCase()}</ThemedText>
-        </View>
-      </View>
-
       <Modal animationType="slide" transparent={true} visible={modalVisible} onRequestClose={closeEditModal}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -894,9 +887,11 @@ export default function HomeScreen() {
                   </View>
                 </View>
 
-                <TouchableOpacity style={styles.createSearchButton} onPress={() => handleCreateSearch(pet)} disabled={creatingSearchPetId === (pet.docId || pet.id)}>
-                  <ThemedText style={styles.createSearchButtonText}>{creatingSearchPetId === (pet.docId || pet.id) ? 'Creating...' : 'Create Search'}</ThemedText>
-                </TouchableOpacity>
+                {!activeSearchesByPet[pet.docId || pet.id || ''] && (
+                  <TouchableOpacity style={styles.createSearchButton} onPress={() => handleCreateSearch(pet)} disabled={creatingSearchPetId === (pet.docId || pet.id)}>
+                    <ThemedText style={styles.createSearchButtonText}>{creatingSearchPetId === (pet.docId || pet.id) ? 'Creating...' : 'Create Search'}</ThemedText>
+                  </TouchableOpacity>
+                )}
 
                 {activeSearchesByPet[pet.docId || pet.id || ''] && (
                   <TouchableOpacity style={styles.openSearchButton} onPress={() => openSearchDetails(activeSearchesByPet[pet.docId || pet.id || '']?.id)}>
@@ -965,31 +960,6 @@ const styles = StyleSheet.create({
     fontSize: 22,
     color: '#2B3A4A',
     marginBottom: 4,
-  },
-  appHeader: {
-    height: 70,
-    backgroundColor: '#0076C0',
-    paddingHorizontal: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  logoText: {
-    color: '#fff',
-    fontSize: 32,
-    fontWeight: 'bold',
-  },
-  avatarCircle: {
-    width: 38,
-    height: 38,
-    backgroundColor: '#003E7A',
-    borderRadius: 19,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  avatarText: {
-    color: '#fff',
-    fontWeight: 'bold',
   },
   profileCard: {
     backgroundColor: '#fff',

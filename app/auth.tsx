@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
+	Animated,
 	Alert,
 	Modal,
 	Pressable,
@@ -44,6 +45,10 @@ export default function AuthScreen() {
 	const [profileCoordinates, setProfileCoordinates] = useState<{ latitude: number; longitude: number } | null>(null);
 	const [pendingEmail, setPendingEmail] = useState('');
 	const [savingProfile, setSavingProfile] = useState(false);
+	const [showVerificationScreen, setShowVerificationScreen] = useState(false);
+	const [verifyEmail, setVerifyEmail] = useState('');
+	const verifyFadeAnim = useRef(new Animated.Value(0)).current;
+	const verifySlideAnim = useRef(new Animated.Value(30)).current;
 
 	type UserLocation = {
 		latitude: number;
@@ -97,6 +102,18 @@ export default function AuthScreen() {
 
 		return () => clearTimeout(debounceHandle);
 	}, [profileAddressTouched, profileHomeAddress, profileModalVisible]);
+
+	useEffect(() => {
+		if (showVerificationScreen) {
+			Animated.parallel([
+				Animated.timing(verifyFadeAnim, { toValue: 1, duration: 420, useNativeDriver: true }),
+				Animated.timing(verifySlideAnim, { toValue: 0, duration: 380, useNativeDriver: true }),
+			]).start();
+		} else {
+			verifyFadeAnim.setValue(0);
+			verifySlideAnim.setValue(30);
+		}
+	}, [showVerificationScreen]);
 
 	const geocodeAddress = async (addressText: string): Promise<UserLocation | null> => {
 		const geocodeResults = await Location.geocodeAsync(addressText);
@@ -271,9 +288,9 @@ export default function AuthScreen() {
 				const cred = await createUserWithEmailAndPassword(auth, email.trim(), password);
 				if (cred.user) {
 					await sendEmailVerification(cred.user);
-					Alert.alert('Verify your email', 'Verification email sent. Please verify, then log in.');
 					await signOut(auth);
-					setIsCreateMode(false);
+					setVerifyEmail(email.trim());
+					setShowVerificationScreen(true);
 				}
 			} else {
 				const cred = await signInWithEmailAndPassword(auth, email.trim(), password);
@@ -381,6 +398,12 @@ export default function AuthScreen() {
 		await signOut(auth);
 	};
 
+	const handleVerifiedTap = () => {
+		setShowVerificationScreen(false);
+		setIsCreateMode(false);
+		setPassword('');
+	};
+
 	const handleResendVerification = async () => {
 		if (!email.trim() || !password.trim()) {
 			Alert.alert('Missing fields', 'Enter email and password, then resend verification.');
@@ -404,14 +427,54 @@ export default function AuthScreen() {
 		}
 	};
 
+	if (showVerificationScreen) {
+		return (
+			<SafeAreaView style={styles.safeArea}>
+				<View style={styles.verifyOuter}>
+					<Animated.View
+						style={[
+							styles.verifyCard,
+							{ opacity: verifyFadeAnim, transform: [{ translateY: verifySlideAnim }] },
+						]}>
+						<View style={styles.verifyIconCircle}>
+							<ThemedText style={styles.verifyIconText}>✉</ThemedText>
+						</View>
+						<ThemedText style={styles.verifyTitle}>Check Your Email</ThemedText>
+						<ThemedText style={styles.verifyBody}>
+							{'An email has been sent to '}
+							<ThemedText style={styles.verifyEmailHighlight}>{verifyEmail}</ThemedText>
+							{'.'}
+						</ThemedText>
+						<ThemedText style={styles.verifyInstruction}>
+							Please select Verified once you've verified your email.
+						</ThemedText>
+						<Pressable style={styles.verifiedButton} onPress={handleVerifiedTap}>
+							<ThemedText style={styles.verifiedButtonText}>Verified</ThemedText>
+						</Pressable>
+						<Pressable onPress={handleVerifiedTap} style={[styles.linkButton, { marginTop: 10 }]}>
+							<ThemedText style={styles.linkText}>Back to sign in</ThemedText>
+						</Pressable>
+					</Animated.View>
+				</View>
+			</SafeAreaView>
+		);
+	}
+
 	return (
 		<SafeAreaView style={styles.safeArea}>
 			<KeyboardAvoidingView
 				style={styles.container}
 				behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-				<View style={styles.card}>
-					<ThemedText style={styles.title}>{isCreateMode ? 'Create account' : 'Sign in'}</ThemedText>
-					<ThemedText style={styles.subtitle}>Use email and password. Email verification is required.</ThemedText>
+				<View style={[styles.card, isCreateMode && styles.cardCreate]}>
+					<View style={[styles.modeAccentBar, isCreateMode ? styles.modeAccentCreate : styles.modeAccentLogin]} />
+					<ThemedText style={[styles.title, isCreateMode && styles.titleCreate]}>
+						{isCreateMode ? 'Create Account' : 'Sign In'}
+					</ThemedText>
+					<ThemedText style={styles.subtitle}>
+						{isCreateMode
+							? 'Enter an email and choose a password to get started.'
+							: 'Use email and password. Email verification is required.'}
+					</ThemedText>
 
 					<TextInput
 						style={styles.input}
@@ -718,5 +781,87 @@ const styles = StyleSheet.create({
 	cancelButtonText: {
 		color: '#fff',
 		fontWeight: 'bold',
+	},
+	modeAccentBar: {
+		height: 5,
+		borderRadius: 3,
+		marginBottom: 14,
+	},
+	modeAccentCreate: {
+		backgroundColor: '#3E7A56',
+	},
+	modeAccentLogin: {
+		backgroundColor: '#6B3F26',
+	},
+	cardCreate: {
+		borderColor: '#3E7A56',
+	},
+	titleCreate: {
+		color: '#3E7A56',
+	},
+	verifyOuter: {
+		flex: 1,
+		justifyContent: 'center',
+		padding: 24,
+		backgroundColor: '#F4EADB',
+	},
+	verifyCard: {
+		backgroundColor: '#FFF8ED',
+		borderRadius: 20,
+		padding: 28,
+		borderWidth: 1,
+		borderColor: '#3E7A56',
+		alignItems: 'center',
+	},
+	verifyIconCircle: {
+		width: 72,
+		height: 72,
+		borderRadius: 36,
+		backgroundColor: '#DFF0E8',
+		justifyContent: 'center',
+		alignItems: 'center',
+		marginBottom: 20,
+	},
+	verifyIconText: {
+		fontSize: 36,
+	},
+	verifyTitle: {
+		fontSize: 26,
+		fontWeight: '700',
+		color: '#3E7A56',
+		marginBottom: 14,
+		textAlign: 'center',
+	},
+	verifyBody: {
+		fontSize: 15,
+		color: '#4A4A4A',
+		textAlign: 'center',
+		lineHeight: 22,
+		marginBottom: 6,
+	},
+	verifyEmailHighlight: {
+		fontWeight: '700',
+		color: '#3E7A56',
+	},
+	verifyInstruction: {
+		fontSize: 14,
+		color: '#7B6A58',
+		textAlign: 'center',
+		lineHeight: 20,
+		marginBottom: 24,
+		marginTop: 8,
+	},
+	verifiedButton: {
+		backgroundColor: '#3E7A56',
+		borderRadius: 12,
+		paddingVertical: 14,
+		paddingHorizontal: 48,
+		alignItems: 'center',
+		width: '100%',
+	},
+	verifiedButtonText: {
+		color: '#FFFFFF',
+		fontWeight: '700',
+		fontSize: 17,
 	},
 });
