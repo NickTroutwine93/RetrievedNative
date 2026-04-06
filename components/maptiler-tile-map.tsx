@@ -13,12 +13,27 @@ type Props = {
   radiusMiles: number;
   apiKey: string;
   zoom?: number;
+  maxZoom?: number;
   styleId?: string;
   containerStyle?: ViewStyle;
   radiusFillColor?: string;
   radiusBorderColor?: string;
-  centerMarker?: 'dot' | 'house';
+  secondaryRadiusMiles?: number;
+  secondaryRadiusFillColor?: string;
+  secondaryRadiusBorderColor?: string;
+  secondaryRadiusVisualScale?: number;
+  centerMarker?: 'dot' | 'house' | 'none';
   centerMarkerColor?: string;
+  zones?: Array<{
+    id?: string;
+    latitude: number;
+    longitude: number;
+    radiusMiles: number;
+    fillColor?: string;
+    borderColor?: string;
+    visualScale?: number;
+  }>;
+  onZoomChange?: (zoom: number) => void;
   markers?: Array<{
     latitude: number;
     longitude: number;
@@ -84,14 +99,22 @@ export function MapTilerTileMap({
   radiusMiles,
   apiKey,
   zoom = 12,
+  maxZoom = MAX_ZOOM,
   styleId = 'streets-v4',
   containerStyle,
   radiusFillColor = 'rgba(0, 102, 255, 0.20)',
   radiusBorderColor = 'rgba(0, 102, 255, 0.75)',
+  secondaryRadiusMiles,
+  secondaryRadiusFillColor = 'rgba(0, 70, 140, 0.28)',
+  secondaryRadiusBorderColor = 'rgba(0, 70, 140, 0.70)',
+  secondaryRadiusVisualScale,
   centerMarker = 'dot',
   centerMarkerColor = '#0a5df0',
+  zones = [],
+  onZoomChange,
   markers = [],
 }: Props) {
+  const safeMaxZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Number(maxZoom) || MAX_ZOOM));
   const containerRef = useRef<any>(null);
   const [layout, setLayout] = useState({ width: 320, height: 240 });
   const [geoCenter, setGeoCenter] = useState(center);
@@ -112,13 +135,13 @@ export function MapTilerTileMap({
   }, [center.latitude, center.longitude]);
 
   useEffect(() => {
-    setZoomLevel(zoom);
+    setZoomLevel(Math.max(MIN_ZOOM, Math.min(safeMaxZoom, zoom)));
     setHasUserZoomed(false);
-  }, [zoom]);
+  }, [safeMaxZoom, zoom]);
 
   const effectiveZoom = useMemo(() => {
     if (!isValidCenter(viewCenter)) {
-      return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoomLevel));
+      return Math.max(MIN_ZOOM, Math.min(safeMaxZoom, zoomLevel));
     }
 
     const minDimension = Math.max(120, Math.min(layout.width, layout.height));
@@ -128,8 +151,8 @@ export function MapTilerTileMap({
     const fitZoom = zoomForMetersPerPixel(viewCenter.latitude, fitMetersPerPixel);
 
     const nextZoom = hasUserZoomed ? zoomLevel : Math.min(zoomLevel, fitZoom);
-    return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, nextZoom));
-  }, [hasUserZoomed, layout.height, layout.width, radiusMiles, viewCenter, zoomLevel]);
+    return Math.max(MIN_ZOOM, Math.min(safeMaxZoom, nextZoom));
+  }, [hasUserZoomed, layout.height, layout.width, radiusMiles, safeMaxZoom, viewCenter, zoomLevel]);
 
   const tileZoom = useMemo(() => {
     return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.round(effectiveZoom)));
@@ -151,6 +174,27 @@ export function MapTilerTileMap({
     const clamped = Math.min(radiusPx, maxVisibleRadiusPx);
     return Math.max(8, clamped);
   }, [effectiveZoom, geoCenter, layout.height, layout.width, radiusMiles]);
+
+  const secondaryRadiusPixelSize = useMemo(() => {
+    if (!isValidCenter(geoCenter) || !Number.isFinite(secondaryRadiusMiles) || Number(secondaryRadiusMiles) <= 0) {
+      return 0;
+    }
+
+    const radiusMeters = milesToMeters(Number(secondaryRadiusMiles));
+    const mpp = metersPerPixel(geoCenter.latitude, effectiveZoom);
+    const radiusPx = radiusMeters / Math.max(mpp, 0.0001);
+    const maxVisibleRadiusPx = Math.max(32, Math.min(layout.width, layout.height) * 3);
+    const clamped = Math.min(radiusPx, maxVisibleRadiusPx);
+    return Math.max(8, clamped);
+  }, [effectiveZoom, geoCenter, layout.height, layout.width, secondaryRadiusMiles]);
+
+  const clampedSecondaryRadiusVisualScale = useMemo(() => {
+    if (!Number.isFinite(secondaryRadiusVisualScale as number)) {
+      return 1;
+    }
+
+    return Math.max(0.35, Math.min(1, Number(secondaryRadiusVisualScale)));
+  }, [secondaryRadiusVisualScale]);
 
   const overlayCenter = useMemo(() => {
     if (!isValidCenter(geoCenter) || !isValidCenter(viewCenter)) {
@@ -247,6 +291,57 @@ export function MapTilerTileMap({
         };
       });
   }, [layout.height, layout.width, markers, panOffset.x, panOffset.y, tileZoom, viewCenter]);
+
+  const zoneOverlays = useMemo(() => {
+    if (!isValidCenter(viewCenter) || !Array.isArray(zones) || zones.length === 0) {
+      return [] as Array<{ key: string; x: number; y: number; radiusPx: number; fillColor: string; borderColor: string }>;
+    }
+
+    const worldTiles = Math.pow(2, tileZoom);
+    const viewTileX = longitudeToTileX(viewCenter.longitude, tileZoom);
+    const viewTileY = latitudeToTileY(viewCenter.latitude, tileZoom);
+
+    return zones
+      .filter(
+        (zone) =>
+          Number.isFinite(zone.latitude) &&
+          Number.isFinite(zone.longitude) &&
+          Number.isFinite(zone.radiusMiles) &&
+          Number(zone.radiusMiles) > 0
+      )
+      .map((zone, index) => {
+        const zoneTileX = longitudeToTileX(zone.longitude, tileZoom);
+        const zoneTileY = latitudeToTileY(zone.latitude, tileZoom);
+
+        let deltaTileX = zoneTileX - viewTileX;
+        if (deltaTileX > worldTiles / 2) {
+          deltaTileX -= worldTiles;
+        } else if (deltaTileX < -worldTiles / 2) {
+          deltaTileX += worldTiles;
+        }
+
+        const mpp = metersPerPixel(zone.latitude, effectiveZoom);
+        const baseRadiusPx = milesToMeters(Number(zone.radiusMiles)) / Math.max(mpp, 0.0001);
+        const maxVisibleRadiusPx = Math.max(32, Math.min(layout.width, layout.height) * 3);
+        const clampedBaseRadiusPx = Math.max(8, Math.min(baseRadiusPx, maxVisibleRadiusPx));
+        const clampedScale = Number.isFinite(zone.visualScale) ? Math.max(0.35, Math.min(1, Number(zone.visualScale))) : 1;
+
+        return {
+          key: zone.id || `zone-${index}`,
+          x: layout.width / 2 + deltaTileX * TILE_SIZE + panOffset.x,
+          y: layout.height / 2 + (zoneTileY - viewTileY) * TILE_SIZE + panOffset.y,
+          radiusPx: clampedBaseRadiusPx * clampedScale,
+          fillColor: zone.fillColor || 'rgba(0, 70, 140, 0.26)',
+          borderColor: zone.borderColor || 'rgba(0, 70, 140, 0.70)',
+        };
+      });
+  }, [effectiveZoom, layout.height, layout.width, panOffset.x, panOffset.y, tileZoom, viewCenter, zones]);
+
+  useEffect(() => {
+    if (typeof onZoomChange === 'function') {
+      onZoomChange(effectiveZoom);
+    }
+  }, [effectiveZoom, onZoomChange]);
 
   const calculateTouchDistance = (touches: Array<{ pageX: number; pageY: number }>) => {
     if (touches.length < 2) {
@@ -443,13 +538,54 @@ export function MapTilerTileMap({
         ]}
       />
 
+      {secondaryRadiusPixelSize > 0 ? (
+        <View
+          style={[
+            styles.radiusCircle,
+            {
+              width: secondaryRadiusPixelSize * 2 * pinchScale * clampedSecondaryRadiusVisualScale,
+              height: secondaryRadiusPixelSize * 2 * pinchScale * clampedSecondaryRadiusVisualScale,
+              borderRadius: secondaryRadiusPixelSize * pinchScale * clampedSecondaryRadiusVisualScale,
+              left: overlayCenter.x,
+              top: overlayCenter.y,
+              borderColor: secondaryRadiusBorderColor,
+              backgroundColor: secondaryRadiusFillColor,
+              transform: [
+                { translateX: -secondaryRadiusPixelSize * pinchScale * clampedSecondaryRadiusVisualScale },
+                { translateY: -secondaryRadiusPixelSize * pinchScale * clampedSecondaryRadiusVisualScale },
+              ],
+            },
+          ]}
+        />
+      ) : null}
+
+      {zoneOverlays.map((zone) => (
+        <View
+          key={zone.key}
+          pointerEvents="none"
+          style={[
+            styles.radiusCircle,
+            {
+              width: zone.radiusPx * 2 * pinchScale,
+              height: zone.radiusPx * 2 * pinchScale,
+              borderRadius: zone.radiusPx * pinchScale,
+              left: zone.x,
+              top: zone.y,
+              borderColor: zone.borderColor,
+              backgroundColor: zone.fillColor,
+              transform: [{ translateX: -zone.radiusPx * pinchScale }, { translateY: -zone.radiusPx * pinchScale }],
+            },
+          ]}
+        />
+      ))}
+
       {centerMarker === 'house' ? (
         <View style={[styles.centerIconContainer, { left: overlayCenter.x, top: overlayCenter.y }]}>
           <IconSymbol size={18} name="house.fill" color={centerMarkerColor} />
         </View>
-      ) : (
+      ) : centerMarker === 'dot' ? (
         <View style={[styles.centerDot, { left: overlayCenter.x, top: overlayCenter.y, backgroundColor: centerMarkerColor }]} />
-      )}
+      ) : null}
 
       {markerPositions.map((marker) => (
         <View key={marker.key} style={[styles.numberMarker, { left: marker.x, top: marker.y, backgroundColor: marker.color }]}>

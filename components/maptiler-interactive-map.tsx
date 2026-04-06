@@ -13,11 +13,16 @@ type Props = {
   radiusMiles: number;
   apiKey: string;
   zoom?: number;
+  maxZoom?: number;
   styleId?: string;
   containerStyle?: ViewStyle;
   radiusFillColor?: string;
   radiusBorderColor?: string;
-  centerMarker?: 'dot' | 'house';
+  secondaryRadiusMiles?: number;
+  secondaryRadiusFillColor?: string;
+  secondaryRadiusBorderColor?: string;
+  secondaryRadiusVisualScale?: number;
+  centerMarker?: 'dot' | 'house' | 'none';
   centerMarkerColor?: string;
   centerMarkerSize?: number;
   radiusVisualScale?: number;
@@ -91,10 +96,15 @@ export function MapTilerInteractiveMap({
   radiusMiles,
   apiKey,
   zoom = 12,
+  maxZoom = MAX_ZOOM,
   styleId = 'streets-v4',
   containerStyle,
   radiusFillColor = 'rgba(0, 102, 255, 0.20)',
   radiusBorderColor = 'rgba(0, 102, 255, 0.75)',
+  secondaryRadiusMiles,
+  secondaryRadiusFillColor = 'rgba(0, 70, 140, 0.28)',
+  secondaryRadiusBorderColor = 'rgba(0, 70, 140, 0.70)',
+  secondaryRadiusVisualScale,
   centerMarker = 'dot',
   centerMarkerColor = '#0a5df0',
   centerMarkerSize = 18,
@@ -104,6 +114,7 @@ export function MapTilerInteractiveMap({
   onMapPress,
   onInteractionChange,
 }: Props) {
+  const safeMaxZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Number(maxZoom) || MAX_ZOOM));
   const containerRef = useRef<any>(null);
   const [layout, setLayout] = useState({ width: 320, height: 240 });
   const [geoCenter, setGeoCenter] = useState(center);
@@ -125,13 +136,13 @@ export function MapTilerInteractiveMap({
   }, [center.latitude, center.longitude]);
 
   useEffect(() => {
-    setZoomLevel(zoom);
+    setZoomLevel(Math.max(MIN_ZOOM, Math.min(safeMaxZoom, zoom)));
     setHasUserZoomed(false);
-  }, [zoom]);
+  }, [safeMaxZoom, zoom]);
 
   const effectiveZoom = useMemo(() => {
     if (!isValidCenter(viewCenter)) {
-      return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoomLevel));
+      return Math.max(MIN_ZOOM, Math.min(safeMaxZoom, zoomLevel));
     }
 
     const minDimension = Math.max(120, Math.min(layout.width, layout.height));
@@ -141,8 +152,8 @@ export function MapTilerInteractiveMap({
     const fitZoom = zoomForMetersPerPixel(viewCenter.latitude, fitMetersPerPixel);
 
     const nextZoom = hasUserZoomed ? zoomLevel : Math.min(zoomLevel, fitZoom);
-    return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, nextZoom));
-  }, [hasUserZoomed, layout.height, layout.width, radiusMiles, viewCenter, zoomLevel]);
+    return Math.max(MIN_ZOOM, Math.min(safeMaxZoom, nextZoom));
+  }, [hasUserZoomed, layout.height, layout.width, radiusMiles, safeMaxZoom, viewCenter, zoomLevel]);
 
   const tileZoom = useMemo(() => {
     return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.round(effectiveZoom)));
@@ -165,6 +176,19 @@ export function MapTilerInteractiveMap({
     return Math.max(8, clamped);
   }, [effectiveZoom, geoCenter, layout.height, layout.width, radiusMiles]);
 
+  const secondaryRadiusPixelSize = useMemo(() => {
+    if (!isValidCenter(geoCenter) || !Number.isFinite(secondaryRadiusMiles) || Number(secondaryRadiusMiles) <= 0) {
+      return 0;
+    }
+
+    const radiusMeters = milesToMeters(Number(secondaryRadiusMiles));
+    const mpp = metersPerPixel(geoCenter.latitude, effectiveZoom);
+    const radiusPx = radiusMeters / Math.max(mpp, 0.0001);
+    const maxVisibleRadiusPx = Math.max(32, Math.min(layout.width, layout.height) * 3);
+    const clamped = Math.min(radiusPx, maxVisibleRadiusPx);
+    return Math.max(8, clamped);
+  }, [effectiveZoom, geoCenter, layout.height, layout.width, secondaryRadiusMiles]);
+
   const clampedRadiusVisualScale = useMemo(() => {
     if (!Number.isFinite(radiusVisualScale)) {
       return 1;
@@ -172,6 +196,14 @@ export function MapTilerInteractiveMap({
 
     return Math.max(0.35, Math.min(1, radiusVisualScale));
   }, [radiusVisualScale]);
+
+  const clampedSecondaryRadiusVisualScale = useMemo(() => {
+    if (!Number.isFinite(secondaryRadiusVisualScale as number)) {
+      return 1;
+    }
+
+    return Math.max(0.35, Math.min(1, Number(secondaryRadiusVisualScale)));
+  }, [secondaryRadiusVisualScale]);
 
   const clampedMarkerSize = useMemo(() => {
     if (!Number.isFinite(markerSize)) {
@@ -393,7 +425,7 @@ export function MapTilerInteractiveMap({
         onPanResponderRelease: (_event) => {
           if (gestureModeRef.current === 'pinch') {
             const deltaZoom = Math.log2(Math.max(0.5, Math.min(3, pinchScale)));
-            const nextZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, pinchStartZoomRef.current + deltaZoom));
+            const nextZoom = Math.max(MIN_ZOOM, Math.min(safeMaxZoom, pinchStartZoomRef.current + deltaZoom));
             setHasUserZoomed(true);
             setZoomLevel(nextZoom);
           } else if (gestureModeRef.current === 'pan') {
@@ -429,7 +461,7 @@ export function MapTilerInteractiveMap({
           }
         },
       }),
-    [onInteractionChange, onMapPress, panOffset.x, panOffset.y, pinchScale, tileZoom, viewCenter]
+    [onInteractionChange, onMapPress, panOffset.x, panOffset.y, pinchScale, safeMaxZoom, tileZoom, viewCenter]
   );
 
   const wheelHandlers = useMemo(() => {
@@ -449,11 +481,11 @@ export function MapTilerInteractiveMap({
 
         const step = deltaY < 0 ? 0.35 : -0.35;
         setHasUserZoomed(true);
-        const nextZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, effectiveZoomRef.current + step));
+        const nextZoom = Math.max(MIN_ZOOM, Math.min(safeMaxZoom, effectiveZoomRef.current + step));
         setZoomLevel(nextZoom);
       },
     };
-  }, []);
+  }, [safeMaxZoom]);
 
   useEffect(() => {
     if (Platform.OS !== 'web') {
@@ -476,7 +508,7 @@ export function MapTilerInteractiveMap({
 
       const step = deltaY < 0 ? 0.35 : -0.35;
       setHasUserZoomed(true);
-      const nextZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, effectiveZoomRef.current + step));
+      const nextZoom = Math.max(MIN_ZOOM, Math.min(safeMaxZoom, effectiveZoomRef.current + step));
       setZoomLevel(nextZoom);
     };
 
@@ -485,7 +517,7 @@ export function MapTilerInteractiveMap({
     return () => {
       node.removeEventListener('wheel', onNativeWheel);
     };
-  }, []);
+  }, [safeMaxZoom]);
 
   const onLayout = (event: LayoutChangeEvent) => {
     const { width, height } = event.nativeEvent.layout;
@@ -531,13 +563,34 @@ export function MapTilerInteractiveMap({
         ]}
       />
 
+      {secondaryRadiusPixelSize > 0 ? (
+        <View
+          style={[
+            styles.radiusCircle,
+            {
+              width: secondaryRadiusPixelSize * 2 * pinchScale * clampedSecondaryRadiusVisualScale,
+              height: secondaryRadiusPixelSize * 2 * pinchScale * clampedSecondaryRadiusVisualScale,
+              borderRadius: secondaryRadiusPixelSize * pinchScale * clampedSecondaryRadiusVisualScale,
+              left: overlayCenter.x,
+              top: overlayCenter.y,
+              borderColor: secondaryRadiusBorderColor,
+              backgroundColor: secondaryRadiusFillColor,
+              transform: [
+                { translateX: -secondaryRadiusPixelSize * pinchScale * clampedSecondaryRadiusVisualScale },
+                { translateY: -secondaryRadiusPixelSize * pinchScale * clampedSecondaryRadiusVisualScale },
+              ],
+            },
+          ]}
+        />
+      ) : null}
+
       {centerMarker === 'house' ? (
         <View style={[styles.centerIconContainer, { left: overlayCenter.x, top: overlayCenter.y }]}> 
           <IconSymbol size={clampedCenterMarkerSize} name="house.fill" color={centerMarkerColor} />
         </View>
-      ) : (
+      ) : centerMarker === 'dot' ? (
         <View style={[styles.centerDot, { left: overlayCenter.x, top: overlayCenter.y, backgroundColor: centerMarkerColor }]} />
-      )}
+      ) : null}
 
       {markerPositions.map((marker) => (
         <TouchableOpacity

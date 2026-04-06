@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Image, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { router } from 'expo-router';
@@ -12,6 +12,7 @@ import { auth, db } from '../../src/services/firebaseClient';
 import { getActiveSearches, getUserData, joinSearch } from '../../src/services/userService';
 
 const MAP_ZOOM = 12;
+const PRIVACY_SAFE_MARKER_ZOOM = 13;
 const DEFAULT_RADIUS_MILES = 5;
 const MAPTILER_KEY = process.env.EXPO_PUBLIC_MAPTILER_API_KEY;
 const petImageSources: Record<string, any> = {
@@ -32,6 +33,52 @@ function milesBetweenPoints(a: { latitude: number; longitude: number }, b: { lat
   return earthRadiusMiles * y;
 }
 
+function hashString(value: string) {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = (hash * 31 + value.charCodeAt(i)) >>> 0;
+  }
+  return hash;
+}
+
+function offsetCoordinate(
+  coordinate: { latitude: number; longitude: number },
+  distanceMiles: number,
+  bearingDegrees: number
+) {
+  const earthRadiusMiles = 3958.7613;
+  const angularDistance = distanceMiles / earthRadiusMiles;
+  const bearing = (bearingDegrees * Math.PI) / 180;
+  const lat1 = (coordinate.latitude * Math.PI) / 180;
+  const lon1 = (coordinate.longitude * Math.PI) / 180;
+
+  const sinLat1 = Math.sin(lat1);
+  const cosLat1 = Math.cos(lat1);
+  const sinAd = Math.sin(angularDistance);
+  const cosAd = Math.cos(angularDistance);
+
+  const lat2 = Math.asin(sinLat1 * cosAd + cosLat1 * sinAd * Math.cos(bearing));
+  const lon2 = lon1 + Math.atan2(Math.sin(bearing) * sinAd * cosLat1, cosAd - sinLat1 * Math.sin(lat2));
+
+  return {
+    latitude: (lat2 * 180) / Math.PI,
+    longitude: ((lon2 * 180) / Math.PI + 540) % 360 - 180,
+  };
+}
+
+function getObfuscatedCoordinate(
+  coordinate: { latitude: number; longitude: number },
+  seed: string,
+  minOffsetMiles = 0.35,
+  maxOffsetMiles = 0.65
+) {
+  const hash = hashString(seed || 'search-location');
+  const bearing = hash % 360;
+  const normalized = ((hash >> 8) % 1000) / 999;
+  const distance = minOffsetMiles + (maxOffsetMiles - minOffsetMiles) * normalized;
+  return offsetCoordinate(coordinate, distance, bearing);
+}
+
 export default function MapScreen() {
   const colorScheme = useColorScheme() ?? 'light';
   const palette = Colors[colorScheme];
@@ -43,6 +90,7 @@ export default function MapScreen() {
   const [relativeTimeTick, setRelativeTimeTick] = useState(Date.now());
   const [joiningSearchId, setJoiningSearchId] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState('');
+  const [mapZoom, setMapZoom] = useState(MAP_ZOOM);
   const placeholderBoxDynamicStyle = { borderColor: palette.border, backgroundColor: palette.surfaceMuted };
   const mapWidgetDynamicStyle = { borderColor: palette.border, backgroundColor: palette.surfaceMuted };
   const metaCardDynamicStyle = { backgroundColor: colorScheme === 'dark' ? 'rgba(19, 34, 49, 0.92)' : 'rgba(255, 255, 255, 0.92)' };
@@ -174,6 +222,27 @@ export default function MapScreen() {
   const showMap = Boolean(center && MAPTILER_KEY && !loading && !error);
   const centerLatitude = center?.latitude ?? 0;
   const centerLongitude = center?.longitude ?? 0;
+  const obfuscatedSearchPoints = useMemo(
+    () =>
+      areaSearches
+        .filter((search) => {
+          const location = search?.Location ?? search?.location;
+          return Boolean(location?.latitude && location?.longitude);
+        })
+        .map((search, index) => {
+          const location = search?.Location ?? search?.location;
+          const obscured = getObfuscatedCoordinate(location, String(search?.id || search?.OwnerID || index));
+
+          return {
+            id: search.id || `search-${index}`,
+            latitude: obscured.latitude,
+            longitude: obscured.longitude,
+            label: String(index + 1),
+          };
+        }),
+    [areaSearches]
+  );
+  const usePrivacyZones = mapZoom > PRIVACY_SAFE_MARKER_ZOOM;
 
   const handleJoinSearch = async (searchId: string) => {
     if (!searchId) {
@@ -221,21 +290,31 @@ export default function MapScreen() {
               radiusMiles={radiusMiles}
               apiKey={MAPTILER_KEY!}
               zoom={MAP_ZOOM}
+              maxZoom={16}
               styleId="streets-v4"
-              markers={areaSearches.map((search, index) => {
-                const location = search?.Location ?? search?.location;
-                return {
-                  latitude: location?.latitude,
-                  longitude: location?.longitude,
-                  label: String(index + 1),
-                };
-              })}
+              onZoomChange={setMapZoom}
+              markers={usePrivacyZones ? [] : obfuscatedSearchPoints}
+              zones={
+                usePrivacyZones
+                  ? obfuscatedSearchPoints.map((searchPoint) => ({
+                      id: `privacy-zone-${searchPoint.id}`,
+                      latitude: searchPoint.latitude,
+                      longitude: searchPoint.longitude,
+                      radiusMiles: 0.5,
+                      fillColor: 'rgba(0, 70, 140, 0.26)',
+                      borderColor: 'rgba(0, 70, 140, 0.70)',
+                    }))
+                  : []
+              }
               containerStyle={styles.mapTilesLayer}
             />
 
             <View style={[styles.mapMetaCard, metaCardDynamicStyle]}>
               <ThemedText style={[styles.metaText, { color: palette.text }]}>Center: {centerLatitude.toFixed(6)}, {centerLongitude.toFixed(6)}</ThemedText>
               <ThemedText style={[styles.metaText, { color: palette.text }]}>Radius: {radiusMiles} miles</ThemedText>
+              <ThemedText style={[styles.metaText, { color: palette.text }]}>
+                {usePrivacyZones ? 'Privacy mode: obscured 0.5 mile zones' : 'View mode: numbered search markers'}
+              </ThemedText>
             </View>
           </View>
         )}

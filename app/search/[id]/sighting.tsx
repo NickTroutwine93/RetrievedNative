@@ -40,6 +40,52 @@ function getConfidenceTextColor(confidence: number) {
   return value === 3 ? '#2b2b2b' : '#ffffff';
 }
 
+function hashString(value: string) {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = (hash * 31 + value.charCodeAt(i)) >>> 0;
+  }
+  return hash;
+}
+
+function offsetCoordinate(
+  coordinate: { latitude: number; longitude: number },
+  distanceMiles: number,
+  bearingDegrees: number
+) {
+  const earthRadiusMiles = 3958.7613;
+  const angularDistance = distanceMiles / earthRadiusMiles;
+  const bearing = (bearingDegrees * Math.PI) / 180;
+  const lat1 = (coordinate.latitude * Math.PI) / 180;
+  const lon1 = (coordinate.longitude * Math.PI) / 180;
+
+  const sinLat1 = Math.sin(lat1);
+  const cosLat1 = Math.cos(lat1);
+  const sinAd = Math.sin(angularDistance);
+  const cosAd = Math.cos(angularDistance);
+
+  const lat2 = Math.asin(sinLat1 * cosAd + cosLat1 * sinAd * Math.cos(bearing));
+  const lon2 = lon1 + Math.atan2(Math.sin(bearing) * sinAd * cosLat1, cosAd - sinLat1 * Math.sin(lat2));
+
+  return {
+    latitude: (lat2 * 180) / Math.PI,
+    longitude: ((lon2 * 180) / Math.PI + 540) % 360 - 180,
+  };
+}
+
+function getObfuscatedCoordinate(
+  coordinate: { latitude: number; longitude: number },
+  seed: string,
+  minOffsetMiles = 0.35,
+  maxOffsetMiles = 0.65
+) {
+  const hash = hashString(seed || 'search-location');
+  const bearing = hash % 360;
+  const normalized = ((hash >> 8) % 1000) / 999;
+  const distance = minOffsetMiles + (maxOffsetMiles - minOffsetMiles) * normalized;
+  return offsetCoordinate(coordinate, distance, bearing);
+}
+
 export default function AddSightingScreen() {
   const colorScheme = useColorScheme() ?? 'light';
   const palette = Colors[colorScheme];
@@ -131,6 +177,14 @@ export default function AddSightingScreen() {
       longitude: center.longitude,
     };
   }, [search]);
+
+  const privacyCenter = useMemo(() => {
+    if (!searchCenter) {
+      return null;
+    }
+
+    return getObfuscatedCoordinate(searchCenter, String(search?.id || id || search?.OwnerID || search?.owner || 'search'));
+  }, [id, search, searchCenter]);
 
   const handleUseCurrentLocation = async () => {
     try {
@@ -260,7 +314,7 @@ export default function AddSightingScreen() {
 
             <View style={[styles.sectionCard, sectionCardDynamicStyle]}>
               <ThemedText style={[styles.sectionTitle, sectionTitleDynamicStyle]}>Sighting Location</ThemedText>
-              <ThemedText style={[styles.sectionHelp, sectionHelpDynamicStyle]}>Tap the map to drop a sighting marker, or use your current location.</ThemedText>
+              <ThemedText style={[styles.sectionHelp, sectionHelpDynamicStyle]}>Tap the map to drop a sighting marker. Search origin is shown as an approximate privacy area.</ThemedText>
 
               {/*
               <TouchableOpacity
@@ -279,18 +333,23 @@ export default function AddSightingScreen() {
                 </ThemedText>
               ) : null}
 
-              {searchCenter && MAPTILER_KEY ? (
+              {privacyCenter && MAPTILER_KEY ? (
                 <View style={[styles.mapWrapper, mapWrapperDynamicStyle]}>
                   <MapTilerInteractiveMap
-                    center={searchCenter}
+                    center={privacyCenter}
                     radiusMiles={Number(search?.Radius ?? search?.radius ?? 5) || 5}
                     apiKey={MAPTILER_KEY}
                     zoom={12}
                     styleId="streets-v4"
-                    centerMarker="house"
-                    centerMarkerColor={palette.primary}
+                    centerMarker="none"
+                    centerMarkerColor="#1f2f3d"
                     centerMarkerSize={14}
                     radiusVisualScale={0.68}
+                    radiusFillColor="rgba(0, 102, 255, 0.20)"
+                    radiusBorderColor="rgba(0, 102, 255, 0.38)"
+                    secondaryRadiusMiles={0.5}
+                    secondaryRadiusFillColor="rgba(0, 70, 140, 0.26)"
+                    secondaryRadiusBorderColor="rgba(0, 70, 140, 0.70)"
                     markerSize={16}
                     markers={
                       selectedLocation

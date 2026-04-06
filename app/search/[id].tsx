@@ -65,6 +65,52 @@ function toMillis(value: any) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function hashString(value: string) {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = (hash * 31 + value.charCodeAt(i)) >>> 0;
+  }
+  return hash;
+}
+
+function offsetCoordinate(
+  coordinate: { latitude: number; longitude: number },
+  distanceMiles: number,
+  bearingDegrees: number
+) {
+  const earthRadiusMiles = 3958.7613;
+  const angularDistance = distanceMiles / earthRadiusMiles;
+  const bearing = (bearingDegrees * Math.PI) / 180;
+  const lat1 = (coordinate.latitude * Math.PI) / 180;
+  const lon1 = (coordinate.longitude * Math.PI) / 180;
+
+  const sinLat1 = Math.sin(lat1);
+  const cosLat1 = Math.cos(lat1);
+  const sinAd = Math.sin(angularDistance);
+  const cosAd = Math.cos(angularDistance);
+
+  const lat2 = Math.asin(sinLat1 * cosAd + cosLat1 * sinAd * Math.cos(bearing));
+  const lon2 = lon1 + Math.atan2(Math.sin(bearing) * sinAd * cosLat1, cosAd - sinLat1 * Math.sin(lat2));
+
+  return {
+    latitude: (lat2 * 180) / Math.PI,
+    longitude: ((lon2 * 180) / Math.PI + 540) % 360 - 180,
+  };
+}
+
+function getObfuscatedCoordinate(
+  coordinate: { latitude: number; longitude: number },
+  seed: string,
+  minOffsetMiles = 0.35,
+  maxOffsetMiles = 0.65
+) {
+  const hash = hashString(seed || 'search-location');
+  const bearing = hash % 360;
+  const normalized = ((hash >> 8) % 1000) / 999;
+  const distance = minOffsetMiles + (maxOffsetMiles - minOffsetMiles) * normalized;
+  return offsetCoordinate(coordinate, distance, bearing);
+}
+
 export default function SearchDetailScreen() {
   const colorScheme = useColorScheme() ?? 'light';
   const palette = Colors[colorScheme];
@@ -164,13 +210,19 @@ export default function SearchDetailScreen() {
   const radiusValue = Number(search?.Radius ?? search?.radius);
   const hasValidRadius = Number.isFinite(radiusValue) && radiusValue > 0;
   const radiusMiles = hasValidRadius ? radiusValue : 0;
-  const showMap = Boolean(center?.latitude && center?.longitude && hasValidRadius && MAPTILER_KEY && !loading && !error);
   const searcherIds = Array.isArray(search?.searchers)
     ? search.searchers
     : Array.isArray(search?.Searchers)
     ? search.Searchers
     : [];
   const ownerId = search?.owner ?? search?.OwnerID;
+  const isOwner = Boolean(currentUserId && ownerId && currentUserId === ownerId);
+  const displayCenter = center
+    ? isOwner
+      ? center
+      : getObfuscatedCoordinate(center, String(search?.id || id || ownerId || 'search'))
+    : null;
+  const showMap = Boolean(displayCenter?.latitude && displayCenter?.longitude && hasValidRadius && MAPTILER_KEY && !loading && !error);
   const canEndSearch = Boolean(currentUserId && ownerId && currentUserId === ownerId);
   const canAddSighting = Boolean(currentUserId && ownerId && (currentUserId === ownerId || searcherIds.includes(currentUserId)));
   const canLeaveSearch = Boolean(currentUserId && ownerId && currentUserId !== ownerId && searcherIds.includes(currentUserId));
@@ -568,21 +620,25 @@ export default function SearchDetailScreen() {
               {showMap ? (
                 <View style={styles.mapWidget}>
                   <MapTilerTileMap
-                    center={{ latitude: center.latitude, longitude: center.longitude }}
+                    center={{ latitude: displayCenter.latitude, longitude: displayCenter.longitude }}
                     radiusMiles={radiusMiles}
                     apiKey={MAPTILER_KEY!}
                     zoom={12}
+                    maxZoom={16}
                     styleId="streets-v4"
-                    radiusFillColor="rgba(0, 102, 255, 0.10)"
+                    radiusFillColor="rgba(0, 102, 255, 0.20)"
                     radiusBorderColor="rgba(0, 102, 255, 0.38)"
-                    centerMarker="house"
+                    secondaryRadiusMiles={0.5}
+                    secondaryRadiusFillColor="rgba(0, 70, 140, 0.26)"
+                    secondaryRadiusBorderColor="rgba(0, 70, 140, 0.70)"
+                    centerMarker="none"
                     centerMarkerColor={palette.primary}
                     markers={sightingMarkers}
                     containerStyle={styles.mapTilesLayer}
                   />
 
                   <View style={styles.mapMetaCard}>
-                    <ThemedText style={styles.metaText}>Center: {center.latitude.toFixed(6)}, {center.longitude.toFixed(6)}</ThemedText>
+                    <ThemedText style={styles.metaText}>{isOwner ? `Center: ${center.latitude.toFixed(6)}, ${center.longitude.toFixed(6)}` : 'Approximate center shown for privacy'}</ThemedText>
                     <ThemedText style={styles.metaText}>Radius: {radiusMiles} miles</ThemedText>
                     <ThemedText style={styles.metaText}>Sightings: {sightingsWithIndex.length}</ThemedText>
                   </View>
