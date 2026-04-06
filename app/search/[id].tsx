@@ -236,6 +236,32 @@ export default function SearchDetailScreen() {
       ? 'Ended: Not Found'
       : 'Ended'
     : 'Active';
+  const statusChipDynamicStyle = {
+    backgroundColor: isSearchEnded ? palette.surfaceMuted : palette.surface,
+    borderColor: isSearchEnded ? palette.danger : palette.success,
+  };
+  const sectionHeaderCardStyle = {
+    borderColor: palette.border,
+    backgroundColor: palette.surfaceMuted,
+  };
+  const sectionBodyCardStyle = {
+    borderColor: palette.border,
+    backgroundColor: palette.surface,
+  };
+  const sectionChevronWrapStyle = {
+    backgroundColor: palette.surface,
+    borderColor: palette.border,
+  };
+  const secondaryTextStyle = {
+    color: palette.textSecondary,
+  };
+  const messageBubbleOwnStyle = {
+    backgroundColor: colorScheme === 'dark' ? '#1f3650' : '#d9ebff',
+  };
+  const messageBubbleOtherStyle = {
+    backgroundColor: palette.surface,
+    borderColor: palette.border,
+  };
 
   const formatTimeSinceSearch = (searchDate: any) => {
     if (!searchDate) {
@@ -480,7 +506,7 @@ export default function SearchDetailScreen() {
         </TouchableOpacity>
         <ThemedText type="title" style={styles.headerTitle}>Search Details</ThemedText>
         {search ? (
-          <View style={[styles.statusChip, isSearchEnded ? styles.statusChipEnded : styles.statusChipActive]}>
+          <View style={[styles.statusChip, statusChipDynamicStyle]}>
             <ThemedText style={styles.statusChipText}>{searchStatusLabel}</ThemedText>
           </View>
         ) : null}
@@ -592,7 +618,7 @@ export default function SearchDetailScreen() {
 
               <View style={styles.sightingsContainer}>
                 <TouchableOpacity
-                  style={[styles.sightingsHeaderButton, sightingsExpanded && styles.sightingsHeaderButtonExpanded]}
+                  style={[styles.sightingsHeaderButton, sectionHeaderCardStyle, sightingsExpanded && styles.sightingsHeaderButtonExpanded]}
                   onPress={handleToggleSightings}
                   activeOpacity={0.7}
                   accessibilityRole="button"
@@ -601,9 +627,9 @@ export default function SearchDetailScreen() {
                   <View style={styles.sightingsHeaderContent}>
                     <View style={styles.sightingsHeaderTextWrap}>
                       <ThemedText type="subtitle" style={styles.sectionTitle}>Sightings ({sightingsWithIndex.length})</ThemedText>
-                      {!sightingsExpanded ? <ThemedText style={styles.sightingsHintText}>Tap to expand</ThemedText> : null}
+                      {!sightingsExpanded ? <ThemedText style={[styles.sightingsHintText, secondaryTextStyle]}>Tap to expand</ThemedText> : null}
                     </View>
-                    <View style={styles.sightingsChevronWrap}>
+                    <View style={[styles.sightingsChevronWrap, sectionChevronWrapStyle]}>
                       <IconSymbol
                         size={18}
                         name="chevron.right"
@@ -616,7 +642,7 @@ export default function SearchDetailScreen() {
                 </TouchableOpacity>
 
                 {sightingsExpanded ? (
-                  <View style={styles.sightingsSection}>
+                  <View style={[styles.sightingsSection, sectionBodyCardStyle]}>
                     {sightingsWithIndex.length === 0 ? (
                       <View style={styles.sightingCard}>
                         <ThemedText style={styles.sightingTitle}>No Sightings Yet</ThemedText>
@@ -650,7 +676,7 @@ export default function SearchDetailScreen() {
 
             <View style={styles.messagesContainer}>
               <TouchableOpacity
-                style={[styles.messagesHeaderButton, messagesExpanded && styles.messagesHeaderButtonExpanded, styles.minTouchTarget]}
+                style={[styles.messagesHeaderButton, sectionHeaderCardStyle, messagesExpanded && styles.messagesHeaderButtonExpanded, styles.minTouchTarget]}
                 onPress={handleToggleMessages}
                 activeOpacity={0.7}
                 accessibilityRole="button"
@@ -659,9 +685,9 @@ export default function SearchDetailScreen() {
                 <View style={styles.messagesHeaderContent}>
                   <View style={styles.messagesHeaderTextWrap}>
                     <ThemedText type="subtitle" style={styles.sectionTitle}>Messages ({messages.length})</ThemedText>
-                    {!messagesExpanded ? <ThemedText style={styles.messagesHintText}>Tap to expand</ThemedText> : null}
+                    {!messagesExpanded ? <ThemedText style={[styles.messagesHintText, secondaryTextStyle]}>Tap to expand</ThemedText> : null}
                   </View>
-                  <View style={styles.messagesChevronWrap}>
+                  <View style={[styles.messagesChevronWrap, sectionChevronWrapStyle]}>
                     <IconSymbol
                       size={18}
                       name="chevron.right"
@@ -674,7 +700,7 @@ export default function SearchDetailScreen() {
               </TouchableOpacity>
 
               {messagesExpanded ? (
-                <View style={styles.messagesSection}>
+                <View style={[styles.messagesSection, sectionBodyCardStyle]}>
                   {messages.length === 0 ? (
                     <ThemedText style={styles.placeholderText}>No messages for this search yet.</ThemedText>
                   ) : (
@@ -683,7 +709,7 @@ export default function SearchDetailScreen() {
                       const isOwnMessage = Boolean(currentUserId && messageSenderId && messageSenderId === currentUserId);
                       return (
                         <View key={message.id} style={[styles.messageRow, isOwnMessage ? styles.messageRowOwn : styles.messageRowOther]}>
-                          <View style={[styles.messageBubble, isOwnMessage ? styles.messageBubbleOwn : styles.messageBubbleOther]}>
+                          <View style={[styles.messageBubble, isOwnMessage ? styles.messageBubbleOwn : styles.messageBubbleOther, isOwnMessage ? messageBubbleOwnStyle : messageBubbleOtherStyle]}>
                             <View style={[styles.messageHeader, isOwnMessage ? styles.messageHeaderOwn : styles.messageHeaderOther]}>
                               <ThemedText style={styles.messageSender}>{message.senderName}</ThemedText>
                               <ThemedText style={styles.messageTime}>{formatRelativeTime(message.createdAt)}</ThemedText>
@@ -722,7 +748,7 @@ export default function SearchDetailScreen() {
 
             <View style={styles.searchersContainer}>
               <TouchableOpacity
-                style={[styles.searchersHeaderButton, searchersExpanded && styles.searchersHeaderButtonExpanded, styles.minTouchTarget]}
+                style={[styles.searchersHeaderButton, sectionHeaderCardStyle, searchersExpanded && styles.searchersHeaderButtonExpanded, styles.minTouchTarget]}
                 onPress={() => setSearchersExpanded((prev) => !prev)}
                 activeOpacity={0.7}
                 accessibilityRole="button"
@@ -731,9 +757,9 @@ export default function SearchDetailScreen() {
                 <View style={styles.searchersHeaderContent}>
                   <View style={styles.searchersHeaderTextWrap}>
                     <ThemedText type="subtitle" style={styles.sectionTitle}>Joined Searchers ({Array.isArray(search?.searcherNames) ? search.searcherNames.length : 0})</ThemedText>
-                    {!searchersExpanded ? <ThemedText style={styles.searchersHintText}>Tap to expand</ThemedText> : null}
+                    {!searchersExpanded ? <ThemedText style={[styles.searchersHintText, secondaryTextStyle]}>Tap to expand</ThemedText> : null}
                   </View>
-                  <View style={styles.searchersChevronWrap}>
+                  <View style={[styles.searchersChevronWrap, sectionChevronWrapStyle]}>
                     <IconSymbol
                       size={18}
                       name="chevron.right"
@@ -745,10 +771,10 @@ export default function SearchDetailScreen() {
               </TouchableOpacity>
 
               {searchersExpanded ? (
-                <View style={styles.searchersSection}>
+                <View style={[styles.searchersSection, sectionBodyCardStyle]}>
                   {Array.isArray(search?.searcherNames) && search.searcherNames.length > 0 ? (
                     search.searcherNames.map((name: string, index: number) => (
-                      <ThemedText key={`${name}-${index}`} style={styles.searcherNameText}>{index + 1}. {name}</ThemedText>
+                      <ThemedText key={`${name}-${index}`} style={[styles.searcherNameText, { color: palette.text }]}>{index + 1}. {name}</ThemedText>
                     ))
                   ) : (
                     <ThemedText style={styles.placeholderText}>No one has joined this search yet.</ThemedText>

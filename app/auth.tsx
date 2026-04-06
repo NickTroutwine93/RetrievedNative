@@ -14,6 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import {
 	createUserWithEmailAndPassword,
 	sendEmailVerification,
+	sendPasswordResetEmail,
 	signInWithEmailAndPassword,
 	signOut,
 } from 'firebase/auth';
@@ -30,6 +31,7 @@ export default function AuthScreen() {
 	const [isCreateMode, setIsCreateMode] = useState(false);
 	const [loading, setLoading] = useState(false);
 	const [resending, setResending] = useState(false);
+	const [resettingPassword, setResettingPassword] = useState(false);
 	const [profileModalVisible, setProfileModalVisible] = useState(false);
 	const [profileFirstName, setProfileFirstName] = useState('');
 	const [profileLastName, setProfileLastName] = useState('');
@@ -47,6 +49,8 @@ export default function AuthScreen() {
 	const [savingProfile, setSavingProfile] = useState(false);
 	const [showVerificationScreen, setShowVerificationScreen] = useState(false);
 	const [verifyEmail, setVerifyEmail] = useState('');
+	const [showResetScreen, setShowResetScreen] = useState(false);
+	const [resetEmail, setResetEmail] = useState('');
 	const verifyFadeAnim = useRef(new Animated.Value(0)).current;
 	const verifySlideAnim = useRef(new Animated.Value(30)).current;
 
@@ -104,7 +108,7 @@ export default function AuthScreen() {
 	}, [profileAddressTouched, profileHomeAddress, profileModalVisible]);
 
 	useEffect(() => {
-		if (showVerificationScreen) {
+		if (showVerificationScreen || showResetScreen) {
 			Animated.parallel([
 				Animated.timing(verifyFadeAnim, { toValue: 1, duration: 420, useNativeDriver: true }),
 				Animated.timing(verifySlideAnim, { toValue: 0, duration: 380, useNativeDriver: true }),
@@ -113,7 +117,7 @@ export default function AuthScreen() {
 			verifyFadeAnim.setValue(0);
 			verifySlideAnim.setValue(30);
 		}
-	}, [showVerificationScreen]);
+	}, [showVerificationScreen, showResetScreen]);
 
 	const geocodeAddress = async (addressText: string): Promise<UserLocation | null> => {
 		const geocodeResults = await Location.geocodeAsync(addressText);
@@ -427,6 +431,64 @@ export default function AuthScreen() {
 		}
 	};
 
+	const handleForgotPassword = async () => {
+		const trimmedEmail = email.trim();
+		if (!trimmedEmail) {
+			Alert.alert('Email required', 'Enter your email address first, then tap reset password.');
+			return;
+		}
+
+		setResettingPassword(true);
+		try {
+			await sendPasswordResetEmail(auth, trimmedEmail);
+			setResetEmail(trimmedEmail);
+			setShowResetScreen(true);
+		} catch (error: any) {
+			Alert.alert('Reset failed', error?.message ?? 'Could not send reset email right now.');
+		} finally {
+			setResettingPassword(false);
+		}
+	};
+
+	const handleResetConfirmedTap = () => {
+		setShowResetScreen(false);
+		setIsCreateMode(false);
+		setPassword('');
+	};
+
+	if (showResetScreen) {
+		return (
+			<SafeAreaView style={styles.safeArea}>
+				<View style={styles.verifyOuter}>
+					<Animated.View
+						style={[
+							styles.verifyCard,
+							{ opacity: verifyFadeAnim, transform: [{ translateY: verifySlideAnim }] },
+						]}>
+						<View style={styles.verifyIconCircle}>
+							<ThemedText style={styles.verifyIconText}>✓</ThemedText>
+						</View>
+						<ThemedText style={styles.verifyTitle}>Reset Email Sent</ThemedText>
+						<ThemedText style={styles.verifyBody}>
+							{'A password reset link has been sent to '}
+							<ThemedText style={styles.verifyEmailHighlight}>{resetEmail}</ThemedText>
+							{'.'}
+						</ThemedText>
+						<ThemedText style={styles.verifyInstruction}>
+							After changing your password, tap the button below to return to sign in.
+						</ThemedText>
+						<Pressable style={styles.verifiedButton} onPress={handleResetConfirmedTap}>
+							<ThemedText style={styles.verifiedButtonText}>Passwords Been Reset</ThemedText>
+						</Pressable>
+						<Pressable onPress={handleResetConfirmedTap} style={[styles.linkButton, { marginTop: 10 }]}>
+							<ThemedText style={styles.linkText}>Back to sign in</ThemedText>
+						</Pressable>
+					</Animated.View>
+				</View>
+			</SafeAreaView>
+		);
+	}
+
 	if (showVerificationScreen) {
 		return (
 			<SafeAreaView style={styles.safeArea}>
@@ -502,6 +564,12 @@ export default function AuthScreen() {
 						</Pressable>
 					)}
 
+					{!isCreateMode && (
+						<Pressable style={styles.tertiaryButton} onPress={handleForgotPassword} disabled={loading || resettingPassword}>
+							<ThemedText style={styles.tertiaryText}>{resettingPassword ? 'Sending reset link...' : 'Forgot password? Reset it'}</ThemedText>
+						</Pressable>
+					)}
+
 					<Pressable
 						onPress={() => setIsCreateMode((prev) => !prev)}
 						disabled={loading}
@@ -570,9 +638,11 @@ export default function AuthScreen() {
 							<ThemedText style={styles.addressErrorText}>{profileAddressError}</ThemedText>
 						)}
 
+						{/*
 						<Pressable style={styles.locationButton} onPress={useCurrentLocation} disabled={savingProfile}>
 							<ThemedText style={styles.locationButtonText}>Use My Location</ThemedText>
 						</Pressable>
+						*/}
 
 						{profileCoordinates && (
 							<ThemedText style={styles.locationSummary}>
@@ -654,6 +724,15 @@ const styles = StyleSheet.create({
 	},
 	secondaryText: {
 		color: '#6B3F26',
+		fontWeight: '600',
+	},
+	tertiaryButton: {
+		marginTop: 10,
+		alignItems: 'center',
+	},
+	tertiaryText: {
+		color: '#6B3F26',
+		textDecorationLine: 'underline',
 		fontWeight: '600',
 	},
 	linkButton: {

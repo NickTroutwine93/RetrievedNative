@@ -255,6 +255,7 @@ export default function AddSightingScreen() {
               <ThemedText style={styles.sectionTitle}>Sighting Location</ThemedText>
               <ThemedText style={styles.sectionHelp}>Tap the map to drop a sighting marker, or use your current location.</ThemedText>
 
+              {/*
               <TouchableOpacity
                 style={[styles.useLocationButton, styles.minTouchTarget, { backgroundColor: palette.primary }]}
                 onPress={handleUseCurrentLocation}
@@ -263,6 +264,7 @@ export default function AddSightingScreen() {
                 accessibilityHint="Uses your GPS location as the sighting location">
                 <ThemedText style={styles.useLocationButtonText}>Use Current Location</ThemedText>
               </TouchableOpacity>
+              */}
 
               {selectedLocation ? (
                 <ThemedText style={styles.locationText}>

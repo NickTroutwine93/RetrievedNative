@@ -797,9 +797,11 @@ export default function HomeScreen() {
               <ThemedText style={styles.addressErrorText}>{profileAddressError}</ThemedText>
             )}
 
+            {/*
             <TouchableOpacity style={styles.locationButton} onPress={useCurrentLocation} disabled={isSavingProfile}>
               <ThemedText style={styles.locationButtonText}>Use My Location</ThemedText>
             </TouchableOpacity>
+            */}
 
             {profileCoordinates && (
               <ThemedText style={styles.locationSummary}>
