@@ -337,7 +337,9 @@ export default function MapScreen() {
                       : Array.isArray(search?.Searchers)
                       ? search.Searchers
                       : [];
-                    const isJoined = Boolean(currentUserId && searcherIds.includes(currentUserId));
+                    const ownerId = search?.owner ?? search?.OwnerID;
+                    const isOwner = Boolean(currentUserId && ownerId && currentUserId === ownerId);
+                    const isJoined = Boolean(currentUserId && (isOwner || searcherIds.includes(currentUserId)));
 
                     return (
                       <>
@@ -388,10 +390,10 @@ export default function MapScreen() {
                     }}
                     disabled={!isJoined && joiningSearchId === search.id}
                     accessibilityRole="button"
-                    accessibilityLabel={isJoined ? 'Open search details' : 'Join search'}
+                    accessibilityLabel={isJoined ? 'Open search' : 'Join search'}
                     accessibilityHint={isJoined ? 'Opens this search details screen' : 'Joins this search and opens details'}>
                     <ThemedText style={styles.joinSearchButtonText}>
-                      {isJoined ? 'Search Details' : joiningSearchId === search.id ? 'Joining...' : 'Join Search'}
+                      {isJoined ? 'Open Search' : joiningSearchId === search.id ? 'Joining...' : 'Join Search'}
                     </ThemedText>
                   </TouchableOpacity>
                       </>

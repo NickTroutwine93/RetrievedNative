@@ -120,6 +120,20 @@ function stringifySearcherEntry(entry) {
   });
 }
 
+function getPreferredFirstName(account, fallbackId = '') {
+  const firstName = String(account?.FirstName || '').trim();
+  if (firstName) {
+    return firstName;
+  }
+
+  const email = String(account?.Email || '').trim();
+  if (email.includes('@')) {
+    return email.split('@')[0];
+  }
+
+  return email || fallbackId;
+}
+
 function hashString(value) {
   let hash = 0;
   for (let i = 0; i < value.length; i += 1) {
@@ -265,9 +279,11 @@ async function hydrateSearchRecord(db, searchDoc, viewerUserId = '') {
           return null;
         }
 
+        if (viewerUserId && searcherId === viewerUserId) {
+          return 'You';
+        }
         const account = accountDoc.data();
-        const fullName = [account.FirstName, account.LastName].filter(Boolean).join(' ').trim();
-        return fullName || account.Email || searcherId;
+        return getPreferredFirstName(account, searcherId);
       })
     )
   ).filter(Boolean);
@@ -862,7 +878,7 @@ export async function createSearch(db, searchData) {
       Date: createdAt,
       Radius: Number(searchData.radius) || 5,
       Sightings: [],
-      Searchers: [],
+      Searchers: [stringifySearcherEntry({ searcherId: searchData.ownerId, status: 1 })],
       Status: 1,
       Successfull: 0,
       Tipped: [],
@@ -889,7 +905,7 @@ export async function createSearch(db, searchData) {
       Date: createdAt,
       Radius: Number(searchData.radius) || 5,
       Sightings: [],
-      Searchers: [],
+      Searchers: [stringifySearcherEntry({ searcherId: searchData.ownerId, status: 1 })],
       Status: 1,
       Successfull: 0,
       Tipped: [],
