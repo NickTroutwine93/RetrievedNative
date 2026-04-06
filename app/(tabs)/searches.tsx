@@ -3,12 +3,13 @@ import { Alert, Modal, StyleSheet, ScrollView, TouchableOpacity, View, Image } f
 import { useFocusEffect } from '@react-navigation/native';
 import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { IconSymbol } from '../../components/ui/icon-symbol';
 import { ThemedText } from '../../components/themed-text';
 import { ThemedView } from '../../components/themed-view';
 import { Colors } from '../../constants/theme';
 import { useColorScheme } from '../../hooks/use-color-scheme';
 import { auth, db } from '../../src/services/firebaseClient';
-import { endSearch, getActiveSearches, getUserData, getUserSearches } from '../../src/services/userService';
+import { endSearch, getActiveSearches, getUserData, getUserSearchHistory, getUserSearches } from '../../src/services/userService';
 
 const petImageSources: Record<string, any> = {
   'Rigby.jpg': require('../../assets/pets/Rigby.jpg'),
@@ -18,14 +19,24 @@ const petImageSources: Record<string, any> = {
 export default function SearchesScreen() {
   const colorScheme = useColorScheme() ?? 'light';
   const palette = Colors[colorScheme];
+  const [account, setAccount] = useState<any>(null);
   const [ownSearches, setOwnSearches] = useState<any[]>([]);
   const [joinedSearches, setJoinedSearches] = useState<any[]>([]);
+  const [historySearches, setHistorySearches] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [relativeTimeTick, setRelativeTimeTick] = useState(Date.now());
   const [endingSearch, setEndingSearch] = useState<any>(null);
   const [isEndingSearch, setIsEndingSearch] = useState(false);
+  const [ownExpanded, setOwnExpanded] = useState(true);
+  const [joinedExpanded, setJoinedExpanded] = useState(true);
+  const [previousOwnedExpanded, setPreviousOwnedExpanded] = useState(false);
+  const [previousJoinedExpanded, setPreviousJoinedExpanded] = useState(false);
   const searchCardDynamicStyle = { borderColor: palette.border, backgroundColor: palette.surface };
   const petImagePlaceholderDynamicStyle = { backgroundColor: palette.surfaceMuted };
+  const sectionHeaderCardStyle = { borderColor: palette.border, backgroundColor: palette.surfaceMuted };
+  const sectionBodyCardStyle = { borderColor: palette.border, backgroundColor: palette.surface };
+  const sectionChevronWrapStyle = { backgroundColor: palette.surface, borderColor: palette.border };
+  const sectionHintStyle = { color: palette.textSecondary };
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -75,15 +86,18 @@ export default function SearchesScreen() {
     try {
       const signedInEmail = auth.currentUser?.email;
       if (!signedInEmail) {
+        setAccount(null);
         setOwnSearches([]);
         setJoinedSearches([]);
+        setHistorySearches([]);
         return;
       }
 
-      const [searchesData, account, activeSearches] = await Promise.all([
+      const [searchesData, account, activeSearches, historyData] = await Promise.all([
         getUserSearches(db, signedInEmail),
         getUserData(db, signedInEmail),
         getActiveSearches(db),
+        getUserSearchHistory(db, signedInEmail),
       ]);
 
       const userId = account?.id || '';
@@ -98,8 +112,10 @@ export default function SearchesScreen() {
         return Boolean(userId && ownerId !== userId && searcherIds.includes(userId));
       });
 
+      setAccount(account || null);
       setOwnSearches(searchesData);
       setJoinedSearches(joined);
+      setHistorySearches(historyData);
     } catch (error) {
       console.error('Error loading searches:', error);
     } finally {
@@ -190,6 +206,69 @@ export default function SearchesScreen() {
     ));
   };
 
+  const renderHistoryCards = (items: any[]) => {
+    if (items.length === 0) {
+      return null;
+    }
+
+    return items.map((search: any) => {
+      const successful = Number(search?.Successful ?? search?.Successfull);
+      const outcome = successful === 1 ? 'Found' : successful === 0 ? 'Not Found' : 'Ended';
+
+      return (
+        <View key={search.id} style={[styles.searchCard, searchCardDynamicStyle]}>
+          <View style={styles.petCardHeader}>
+            <ThemedText style={[styles.petName, { color: palette.text }]}>{search?.pet?.Name || 'Unnamed pet'}</ThemedText>
+            <ThemedText style={[styles.searchAge, { color: palette.textSecondary }]}>{formatTimeSinceSearch(search?.Date ?? search?.date)}</ThemedText>
+            <ThemedText style={[styles.searchStatus, { color: palette.textSecondary }]}>Result: {outcome}</ThemedText>
+          </View>
+
+          <View style={styles.petCardRow}>
+            {search?.pet?.Image ? (
+              <Image
+                source={
+                  search.pet.Image.startsWith('http')
+                    ? { uri: search.pet.Image }
+                    : petImageSources[search.pet.Image] || require('../../assets/pets/Default.jpg')
+                }
+                style={styles.petImage}
+                resizeMode="cover"
+              />
+            ) : (
+              <View style={[styles.petImagePlaceholder, petImagePlaceholderDynamicStyle]}>
+                <ThemedText style={[styles.petImageText, { color: palette.textSecondary }]}>No image</ThemedText>
+              </View>
+            )}
+
+            <View style={styles.petDetails}>
+              <ThemedText>Breed: {search?.pet?.Breed ?? 'Unknown'}</ThemedText>
+              <ThemedText>Color: {Array.isArray(search?.pet?.Color) ? search.pet.Color.join(', ') : search?.pet?.Color ?? 'Unknown'}</ThemedText>
+              <ThemedText>Size: {search?.pet?.Size ?? 'Unknown'}</ThemedText>
+            </View>
+          </View>
+
+          <TouchableOpacity
+            style={[styles.openSearchButton, styles.minTouchTarget, { backgroundColor: palette.primary }]}
+            onPress={() => router.push({ pathname: '/search/[id]', params: { id: search.id } } as any)}
+            accessibilityRole="button"
+            accessibilityLabel={`Open details for ${search?.pet?.Name || 'search'}`}>
+            <ThemedText style={styles.openSearchButtonText}>Open Details</ThemedText>
+          </TouchableOpacity>
+        </View>
+      );
+    });
+  };
+
+  const historyOwnedSearches = historySearches.filter((search) => {
+    const ownerId = search?.owner ?? search?.OwnerID;
+    return Boolean(account?.id && ownerId === account.id);
+  });
+
+  const historyJoinedSearches = historySearches.filter((search) => {
+    const ownerId = search?.owner ?? search?.OwnerID;
+    return Boolean(account?.id && ownerId !== account.id);
+  });
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: palette.background }]}>
       <ThemedView style={[styles.header, { borderBottomColor: palette.border, backgroundColor: palette.surface }]}>
@@ -201,22 +280,144 @@ export default function SearchesScreen() {
           <ThemedText>Loading...</ThemedText>
         ) : (
           <>
-            <View style={styles.sectionBlock}>
-              <ThemedText style={[styles.sectionHeader, { color: palette.text }]}>Your Pets</ThemedText>
-              {ownSearches.length === 0 ? (
-                <ThemedText style={[styles.emptySectionText, { color: palette.textMuted }]}>You have no active searches for your pets.</ThemedText>
-              ) : (
-                renderSearchCards(ownSearches, true)
-              )}
+            <View style={styles.sectionContainer}>
+              <TouchableOpacity
+                style={[styles.sectionHeaderButton, sectionHeaderCardStyle, ownExpanded && styles.sectionHeaderButtonExpanded, styles.minTouchTarget]}
+                onPress={() => setOwnExpanded((prev) => !prev)}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel={`Your pets searches section, ${ownSearches.length} items`}
+                accessibilityState={{ expanded: ownExpanded }}>
+                <View style={styles.sectionHeaderContent}>
+                  <View style={styles.sectionHeaderTextWrap}>
+                    <ThemedText style={[styles.sectionHeader, { color: palette.text }]}>Your Pets ({ownSearches.length})</ThemedText>
+                    {!ownExpanded ? <ThemedText style={[styles.sectionHintText, sectionHintStyle]}>Tap to expand</ThemedText> : null}
+                  </View>
+                  <View style={[styles.sectionChevronWrap, sectionChevronWrapStyle]}>
+                    <IconSymbol
+                      size={18}
+                      name="chevron.right"
+                      color={palette.primary}
+                      style={ownExpanded ? styles.sectionChevronIconExpanded : undefined}
+                    />
+                  </View>
+                </View>
+              </TouchableOpacity>
+
+              {ownExpanded ? (
+                <View style={[styles.sectionBody, sectionBodyCardStyle]}>
+                  {ownSearches.length === 0 ? (
+                    <ThemedText style={[styles.emptySectionText, { color: palette.textMuted }]}>You have no active searches for your pets.</ThemedText>
+                  ) : (
+                    renderSearchCards(ownSearches, true)
+                  )}
+                </View>
+              ) : null}
             </View>
 
-            <View style={styles.sectionBlock}>
-              <ThemedText style={[styles.sectionHeader, { color: palette.text }]}>Searches Joined</ThemedText>
-              {joinedSearches.length === 0 ? (
-                <ThemedText style={[styles.emptySectionText, { color: palette.textMuted }]}>You have not joined any active searches.</ThemedText>
-              ) : (
-                renderSearchCards(joinedSearches, false)
-              )}
+            <View style={styles.sectionContainer}>
+              <TouchableOpacity
+                style={[styles.sectionHeaderButton, sectionHeaderCardStyle, joinedExpanded && styles.sectionHeaderButtonExpanded, styles.minTouchTarget]}
+                onPress={() => setJoinedExpanded((prev) => !prev)}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel={`Joined searches section, ${joinedSearches.length} items`}
+                accessibilityState={{ expanded: joinedExpanded }}>
+                <View style={styles.sectionHeaderContent}>
+                  <View style={styles.sectionHeaderTextWrap}>
+                    <ThemedText style={[styles.sectionHeader, { color: palette.text }]}>Searches Joined ({joinedSearches.length})</ThemedText>
+                    {!joinedExpanded ? <ThemedText style={[styles.sectionHintText, sectionHintStyle]}>Tap to expand</ThemedText> : null}
+                  </View>
+                  <View style={[styles.sectionChevronWrap, sectionChevronWrapStyle]}>
+                    <IconSymbol
+                      size={18}
+                      name="chevron.right"
+                      color={palette.primary}
+                      style={joinedExpanded ? styles.sectionChevronIconExpanded : undefined}
+                    />
+                  </View>
+                </View>
+              </TouchableOpacity>
+
+              {joinedExpanded ? (
+                <View style={[styles.sectionBody, sectionBodyCardStyle]}>
+                  {joinedSearches.length === 0 ? (
+                    <ThemedText style={[styles.emptySectionText, { color: palette.textMuted }]}>You have not joined any active searches.</ThemedText>
+                  ) : (
+                    renderSearchCards(joinedSearches, false)
+                  )}
+                </View>
+              ) : null}
+            </View>
+
+            <View style={styles.sectionContainer}>
+              <TouchableOpacity
+                style={[styles.sectionHeaderButton, sectionHeaderCardStyle, previousOwnedExpanded && styles.sectionHeaderButtonExpanded, styles.minTouchTarget]}
+                onPress={() => setPreviousOwnedExpanded((prev) => !prev)}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel={`Previously owned searches section, ${historyOwnedSearches.length} items`}
+                accessibilityState={{ expanded: previousOwnedExpanded }}>
+                <View style={styles.sectionHeaderContent}>
+                  <View style={styles.sectionHeaderTextWrap}>
+                    <ThemedText style={[styles.sectionHeader, { color: palette.text }]}>Previously Owned ({historyOwnedSearches.length})</ThemedText>
+                    {!previousOwnedExpanded ? <ThemedText style={[styles.sectionHintText, sectionHintStyle]}>Tap to expand</ThemedText> : null}
+                  </View>
+                  <View style={[styles.sectionChevronWrap, sectionChevronWrapStyle]}>
+                    <IconSymbol
+                      size={18}
+                      name="chevron.right"
+                      color={palette.primary}
+                      style={previousOwnedExpanded ? styles.sectionChevronIconExpanded : undefined}
+                    />
+                  </View>
+                </View>
+              </TouchableOpacity>
+
+              {previousOwnedExpanded ? (
+                <View style={[styles.sectionBody, sectionBodyCardStyle]}>
+                  {historyOwnedSearches.length === 0 ? (
+                    <ThemedText style={[styles.emptySectionText, { color: palette.textMuted }]}>No previously owned searches.</ThemedText>
+                  ) : (
+                    renderHistoryCards(historyOwnedSearches)
+                  )}
+                </View>
+              ) : null}
+            </View>
+
+            <View style={styles.sectionContainer}>
+              <TouchableOpacity
+                style={[styles.sectionHeaderButton, sectionHeaderCardStyle, previousJoinedExpanded && styles.sectionHeaderButtonExpanded, styles.minTouchTarget]}
+                onPress={() => setPreviousJoinedExpanded((prev) => !prev)}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel={`Previously joined searches section, ${historyJoinedSearches.length} items`}
+                accessibilityState={{ expanded: previousJoinedExpanded }}>
+                <View style={styles.sectionHeaderContent}>
+                  <View style={styles.sectionHeaderTextWrap}>
+                    <ThemedText style={[styles.sectionHeader, { color: palette.text }]}>Previously Joined ({historyJoinedSearches.length})</ThemedText>
+                    {!previousJoinedExpanded ? <ThemedText style={[styles.sectionHintText, sectionHintStyle]}>Tap to expand</ThemedText> : null}
+                  </View>
+                  <View style={[styles.sectionChevronWrap, sectionChevronWrapStyle]}>
+                    <IconSymbol
+                      size={18}
+                      name="chevron.right"
+                      color={palette.primary}
+                      style={previousJoinedExpanded ? styles.sectionChevronIconExpanded : undefined}
+                    />
+                  </View>
+                </View>
+              </TouchableOpacity>
+
+              {previousJoinedExpanded ? (
+                <View style={[styles.sectionBody, sectionBodyCardStyle]}>
+                  {historyJoinedSearches.length === 0 ? (
+                    <ThemedText style={[styles.emptySectionText, { color: palette.textMuted }]}>No previously joined searches.</ThemedText>
+                  ) : (
+                    renderHistoryCards(historyJoinedSearches)
+                  )}
+                </View>
+              ) : null}
             </View>
           </>
         )}
@@ -267,20 +468,63 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 16,
+    gap: 16,
   },
-  sectionBlock: {
-    marginBottom: 18,
+  sectionContainer: {
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  sectionHeaderButton: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  sectionHeaderButtonExpanded: {
+    borderBottomLeftRadius: 0,
+    borderBottomRightRadius: 0,
+  },
+  sectionHeaderContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  sectionHeaderTextWrap: {
+    flex: 1,
+    gap: 2,
+  },
+  sectionHintText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  sectionChevronWrap: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+  },
+  sectionChevronIconExpanded: {
+    transform: [{ rotate: '-90deg' }],
+  },
+  sectionBody: {
+    padding: 12,
+    borderBottomLeftRadius: 12,
+    borderBottomRightRadius: 12,
+    borderTopLeftRadius: 0,
+    borderTopRightRadius: 0,
+    borderWidth: 1,
+    borderTopWidth: 0,
   },
   sectionHeader: {
     fontSize: 20,
     fontWeight: '800',
-    color: '#2B3A4A',
-    marginBottom: 10,
   },
   emptySectionText: {
     fontSize: 14,
     color: '#4E5B63',
-    marginBottom: 8,
+    marginBottom: 2,
   },
   searchCard: {
     padding: 14,

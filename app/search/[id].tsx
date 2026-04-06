@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -77,6 +77,7 @@ export default function SearchDetailScreen() {
   const [account, setAccount] = useState<any>(null);
   const [leavingSearch, setLeavingSearch] = useState(false);
   const [endingSearch, setEndingSearch] = useState(false);
+  const [showEndSearchModal, setShowEndSearchModal] = useState(false);
   const [messages, setMessages] = useState<any[]>([]);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
@@ -357,6 +358,7 @@ export default function SearchDetailScreen() {
     try {
       setEndingSearch(true);
       await endSearch(db, id, wasSuccessful);
+      setShowEndSearchModal(false);
       router.replace('/(tabs)/map' as any);
     } catch (endError: any) {
       Alert.alert('End search failed', endError?.message || 'Unable to end this search right now.');
@@ -366,31 +368,7 @@ export default function SearchDetailScreen() {
   };
 
   const handleEndSearch = () => {
-    Alert.alert(
-      'End Search',
-      'How should this search be marked?',
-      [
-        {
-          text: 'Pet Found',
-          onPress: () => {
-            Alert.alert('Confirm End Search', 'Mark this search as successful and end it?', [
-              { text: 'Cancel', style: 'cancel' },
-              { text: 'End Search', style: 'destructive', onPress: () => void runEndSearch(true) },
-            ]);
-          },
-        },
-        {
-          text: 'Not Found',
-          onPress: () => {
-            Alert.alert('Confirm End Search', 'Mark this search as not successful and end it?', [
-              { text: 'Cancel', style: 'cancel' },
-              { text: 'End Search', style: 'destructive', onPress: () => void runEndSearch(false) },
-            ]);
-          },
-        },
-        { text: 'Cancel', style: 'cancel' },
-      ]
-    );
+    setShowEndSearchModal(true);
   };
 
   const handleSend = async () => {
@@ -785,6 +763,43 @@ export default function SearchDetailScreen() {
           </>
         ) : null}
       </ScrollView>
+
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={showEndSearchModal}
+        onRequestClose={() => !endingSearch && setShowEndSearchModal(false)}>
+        <View style={[styles.modalOverlay, { backgroundColor: palette.overlay }]}>
+          <View style={[styles.modalContent, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+            <ThemedText type="title" style={styles.modalTitle}>End Search</ThemedText>
+            <ThemedText style={[styles.modalBody, { color: palette.textSecondary }]}>
+              Was {search?.pet?.Name ?? 'this pet'} found?
+            </ThemedText>
+
+            <TouchableOpacity
+              style={[styles.foundButton, { backgroundColor: palette.success }]}
+              onPress={() => void runEndSearch(true)}
+              disabled={endingSearch}>
+              <ThemedText style={styles.modalButtonText}>{endingSearch ? 'Saving...' : 'Found'}</ThemedText>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.notFoundButton, { backgroundColor: palette.danger }]}
+              onPress={() => void runEndSearch(false)}
+              disabled={endingSearch}>
+              <ThemedText style={styles.modalButtonText}>{endingSearch ? 'Saving...' : 'Not Found'}</ThemedText>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.cancelButton, { backgroundColor: palette.textMuted }]}
+              onPress={() => setShowEndSearchModal(false)}
+              disabled={endingSearch}>
+              <ThemedText style={styles.cancelButtonText}>Cancel</ThemedText>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -1333,5 +1348,52 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '700',
     fontSize: 14,
+  },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    width: '100%',
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 20,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 12,
+  },
+  modalBody: {
+    fontSize: 14,
+    marginBottom: 14,
+    lineHeight: 20,
+  },
+  foundButton: {
+    padding: 10,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  notFoundButton: {
+    padding: 10,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  modalButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+  cancelButton: {
+    padding: 10,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  cancelButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
   },
 });

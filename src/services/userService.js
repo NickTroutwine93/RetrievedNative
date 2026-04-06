@@ -365,6 +365,47 @@ export async function getActiveSearches(db) {
   }
 }
 
+export async function getUserSearchHistory(db, email) {
+  try {
+    const userQuery = query(collection(db, 'accounts'), where('Email', '==', email));
+    const userSnapshot = await getDocs(userQuery);
+
+    if (userSnapshot.empty) {
+      console.warn(`No user found for email: ${email}`);
+      return [];
+    }
+
+    const userId = userSnapshot.docs[0].id;
+    const searchSnapshot = await getDocs(collection(db, 'searches'));
+    const hydratedSearches = await Promise.all(searchSnapshot.docs.map((searchDoc) => hydrateSearchRecord(db, searchDoc)));
+
+    const history = hydratedSearches.filter((search) => {
+      const status = search?.status ?? search?.Status;
+      if (status === 1) {
+        return false;
+      }
+
+      const ownerId = search?.owner ?? search?.OwnerID;
+      const searcherIds = Array.isArray(search?.searchers)
+        ? search.searchers
+        : Array.isArray(search?.Searchers)
+        ? search.Searchers
+        : [];
+
+      return ownerId === userId || searcherIds.includes(userId);
+    });
+
+    return history.sort((a, b) => {
+      const aTime = toMillis(a?.Date ?? a?.date ?? a?.lastUpdated);
+      const bTime = toMillis(b?.Date ?? b?.date ?? b?.lastUpdated);
+      return bTime - aTime;
+    });
+  } catch (error) {
+    console.error('Error fetching user search history:', error);
+    throw error;
+  }
+}
+
 function toMillis(value) {
   if (!value) {
     return 0;
