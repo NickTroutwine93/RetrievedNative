@@ -43,6 +43,11 @@ export default function MapScreen() {
   const [relativeTimeTick, setRelativeTimeTick] = useState(Date.now());
   const [joiningSearchId, setJoiningSearchId] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState('');
+  const placeholderBoxDynamicStyle = { borderColor: palette.border, backgroundColor: palette.surfaceMuted };
+  const mapWidgetDynamicStyle = { borderColor: palette.border, backgroundColor: palette.surfaceMuted };
+  const metaCardDynamicStyle = { backgroundColor: colorScheme === 'dark' ? 'rgba(19, 34, 49, 0.92)' : 'rgba(255, 255, 255, 0.92)' };
+  const searchCardDynamicStyle = { borderColor: palette.border, backgroundColor: palette.surface };
+  const petImagePlaceholderDynamicStyle = { backgroundColor: palette.surfaceMuted };
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -196,21 +201,21 @@ export default function MapScreen() {
         {loading && <ActivityIndicator size="large" color={palette.primary} />}
 
         {!loading && !MAPTILER_KEY && (
-          <View style={styles.placeholderBox}>
-            <ThemedText style={styles.placeholderText}>MapTiler API Key Missing</ThemedText>
-            <ThemedText style={styles.infoText}>Set EXPO_PUBLIC_MAPTILER_API_KEY to display the map widget.</ThemedText>
+          <View style={[styles.placeholderBox, placeholderBoxDynamicStyle]}>
+            <ThemedText style={[styles.placeholderText, { color: palette.text }]}>MapTiler API Key Missing</ThemedText>
+            <ThemedText style={[styles.infoText, { color: palette.textSecondary }]}>Set EXPO_PUBLIC_MAPTILER_API_KEY to display the map widget.</ThemedText>
           </View>
         )}
 
         {!loading && Boolean(error) && (
-          <View style={styles.placeholderBox}>
-            <ThemedText style={styles.placeholderText}>Map Unavailable</ThemedText>
-            <ThemedText style={styles.infoText}>{error}</ThemedText>
+          <View style={[styles.placeholderBox, placeholderBoxDynamicStyle]}>
+            <ThemedText style={[styles.placeholderText, { color: palette.text }]}>Map Unavailable</ThemedText>
+            <ThemedText style={[styles.infoText, { color: palette.textSecondary }]}>{error}</ThemedText>
           </View>
         )}
 
         {showMap && (
-          <View style={styles.mapWidget}>
+          <View style={[styles.mapWidget, mapWidgetDynamicStyle]}>
             <MapTilerTileMap
               center={center!}
               radiusMiles={radiusMiles}
@@ -228,23 +233,23 @@ export default function MapScreen() {
               containerStyle={styles.mapTilesLayer}
             />
 
-            <View style={styles.mapMetaCard}>
-              <ThemedText style={styles.metaText}>Center: {centerLatitude.toFixed(6)}, {centerLongitude.toFixed(6)}</ThemedText>
-              <ThemedText style={styles.metaText}>Radius: {radiusMiles} miles</ThemedText>
+            <View style={[styles.mapMetaCard, metaCardDynamicStyle]}>
+              <ThemedText style={[styles.metaText, { color: palette.text }]}>Center: {centerLatitude.toFixed(6)}, {centerLongitude.toFixed(6)}</ThemedText>
+              <ThemedText style={[styles.metaText, { color: palette.text }]}>Radius: {radiusMiles} miles</ThemedText>
             </View>
           </View>
         )}
 
         {!loading && showMap && (
           <>
-            <ThemedText style={styles.creditText}>Map tiles by MapTiler, data by OpenStreetMap contributors.</ThemedText>
-            <ThemedText style={styles.resultsHeader}>Searches in your {radiusMiles} mile radius: {areaSearches.length}</ThemedText>
+            <ThemedText style={[styles.creditText, { color: palette.textSecondary }]}>Map tiles by MapTiler, data by OpenStreetMap contributors.</ThemedText>
+            <ThemedText style={[styles.resultsHeader, { color: palette.text }]}>Searches in your {radiusMiles} mile radius: {areaSearches.length}</ThemedText>
 
             {areaSearches.length === 0 ? (
-              <ThemedText style={styles.emptyText}>No active searches are currently within your configured radius.</ThemedText>
+              <ThemedText style={[styles.emptyText, { color: palette.textSecondary }]}>No active searches are currently within your configured radius.</ThemedText>
             ) : (
               areaSearches.map((search: any, index: number) => (
-                <View key={search.id} style={styles.searchCard}>
+                <View key={search.id} style={[styles.searchCard, searchCardDynamicStyle]}>
                   {(() => {
                     const searcherIds = Array.isArray(search?.searchers)
                       ? search.searchers
@@ -260,9 +265,9 @@ export default function MapScreen() {
                   </View>
 
                   <View style={styles.petCardHeader}>
-                    <ThemedText style={styles.petName}>{search?.pet?.Name || 'Unnamed pet'}</ThemedText>
-                    <ThemedText style={styles.searchAge}>{formatTimeSinceSearch(search?.Date ?? search?.date)}</ThemedText>
-                    <ThemedText style={styles.searchStatus}>Search status: {search.status ?? search.Status ?? 'Unknown'}</ThemedText>
+                    <ThemedText style={[styles.petName, { color: palette.text }]}>{search?.pet?.Name || 'Unnamed pet'}</ThemedText>
+                    <ThemedText style={[styles.searchAge, { color: palette.primary }]}>{formatTimeSinceSearch(search?.Date ?? search?.date)}</ThemedText>
+                    <ThemedText style={[styles.searchStatus, { color: palette.textSecondary }]}>Search status: {search.status ?? search.Status ?? 'Unknown'}</ThemedText>
                   </View>
 
                   <View style={styles.petCardRow}>
@@ -277,8 +282,8 @@ export default function MapScreen() {
                         resizeMode="cover"
                       />
                     ) : (
-                      <View style={styles.petImagePlaceholder}>
-                        <ThemedText style={styles.petImageText}>No image</ThemedText>
+                      <View style={[styles.petImagePlaceholder, petImagePlaceholderDynamicStyle]}>
+                        <ThemedText style={[styles.petImageText, { color: palette.textSecondary }]}>No image</ThemedText>
                       </View>
                     )}
 

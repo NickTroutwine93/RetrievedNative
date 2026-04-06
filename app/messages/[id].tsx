@@ -65,6 +65,16 @@ export default function SearchMessagesScreen() {
   const palette = Colors[colorScheme];
   const { id } = useLocalSearchParams<{ id?: string }>();
   const scrollViewRef = useRef<ScrollView | null>(null);
+  const backButtonDynamicStyle = { backgroundColor: palette.primaryStrong };
+  const errorBoxDynamicStyle = { borderColor: palette.danger, backgroundColor: palette.surfaceMuted };
+  const emptyConversationDynamicStyle = { borderColor: palette.border, backgroundColor: palette.surfaceMuted };
+  const myBubbleDynamicStyle = {
+    borderColor: palette.primary,
+    backgroundColor: colorScheme === 'dark' ? '#1f3650' : '#d7edf9',
+  };
+  const otherBubbleDynamicStyle = { borderColor: palette.border, backgroundColor: palette.surface };
+  const composerWrapDynamicStyle = { borderTopColor: palette.border, backgroundColor: palette.surface };
+  const inputDynamicStyle = { borderColor: palette.border, color: palette.text, backgroundColor: palette.surfaceMuted };
 
   const [search, setSearch] = useState<any>(null);
   const [account, setAccount] = useState<any>(null);
@@ -210,12 +220,12 @@ export default function SearchMessagesScreen() {
       <KeyboardAvoidingView style={styles.container} behavior={Platform.select({ ios: 'padding', default: undefined })}>
         <ThemedView style={[styles.header, { borderBottomColor: palette.border, backgroundColor: palette.surface }]}>
           <TouchableOpacity
-            style={[styles.backButton, styles.minTouchTarget]}
+            style={[styles.backButton, backButtonDynamicStyle, styles.minTouchTarget]}
             onPress={() => router.back()}
             accessibilityRole="button"
             accessibilityLabel="Go back"
             accessibilityHint="Returns to the messages tab">
-            <IconSymbol size={18} name="chevron.right" color="#ffffff" style={styles.backIcon} />
+            <IconSymbol size={18} name="chevron.right" color={palette.onPrimary} style={styles.backIcon} />
             <ThemedText style={styles.backButtonText}>Back</ThemedText>
           </TouchableOpacity>
           <ThemedText type="title" style={styles.headerTitle}>Messages</ThemedText>
@@ -227,41 +237,41 @@ export default function SearchMessagesScreen() {
             <ActivityIndicator size="large" color={palette.primary} />
           </View>
         ) : error ? (
-          <View style={[styles.errorBox, { borderColor: palette.danger, backgroundColor: palette.surfaceMuted }]}>
-            <ThemedText style={styles.errorTitle}>Chat Unavailable</ThemedText>
-            <ThemedText style={styles.errorBody}>{error}</ThemedText>
+          <View style={[styles.errorBox, errorBoxDynamicStyle]}>
+            <ThemedText style={[styles.errorTitle, { color: palette.danger }]}>Chat Unavailable</ThemedText>
+            <ThemedText style={[styles.errorBody, { color: palette.danger }]}>{error}</ThemedText>
           </View>
         ) : (
           <>
             <ScrollView ref={scrollViewRef} style={styles.messagesContainer} contentContainerStyle={styles.messagesContent}>
               {messages.length === 0 ? (
-                <View style={styles.emptyConversation}>
-                  <ThemedText style={styles.emptyConversationTitle}>Start the conversation</ThemedText>
-                  <ThemedText style={styles.emptyConversationBody}>Share sightings, route updates, and coordination notes for this active search.</ThemedText>
+                <View style={[styles.emptyConversation, emptyConversationDynamicStyle]}>
+                  <ThemedText style={[styles.emptyConversationTitle, { color: palette.text }]}>Start the conversation</ThemedText>
+                  <ThemedText style={[styles.emptyConversationBody, { color: palette.textSecondary }]}>Share sightings, route updates, and coordination notes for this active search.</ThemedText>
                 </View>
               ) : (
                 messages.map((message) => {
                   const isMine = message.SenderID === account?.id;
 
                   return (
-                    <View key={message.id} style={[styles.messageBubble, isMine ? styles.myBubble : styles.otherBubble]}>
-                      <ThemedText style={styles.senderText}>{isMine ? 'You' : message.SenderName || 'Volunteer'}</ThemedText>
-                      <ThemedText style={styles.messageText}>{message.Text}</ThemedText>
-                      <ThemedText style={styles.timestampText}>{formatMessageTime(message.createdAt)}</ThemedText>
+                    <View key={message.id} style={[styles.messageBubble, isMine ? styles.myBubble : styles.otherBubble, isMine ? myBubbleDynamicStyle : otherBubbleDynamicStyle]}>
+                      <ThemedText style={[styles.senderText, { color: palette.primary }]}>{isMine ? 'You' : message.SenderName || 'Volunteer'}</ThemedText>
+                      <ThemedText style={[styles.messageText, { color: palette.text }]}>{message.Text}</ThemedText>
+                      <ThemedText style={[styles.timestampText, { color: palette.textSecondary }]}>{formatMessageTime(message.createdAt)}</ThemedText>
                     </View>
                   );
                 })
               )}
             </ScrollView>
 
-            <View style={styles.composerWrap}>
+            <View style={[styles.composerWrap, composerWrapDynamicStyle]}>
               <TextInput
                 value={draft}
                 onChangeText={setDraft}
                 placeholder="Type an update for the team"
                 placeholderTextColor={palette.textMuted}
                 multiline
-                style={styles.input}
+                style={[styles.input, inputDynamicStyle]}
                 editable={!sending}
                 accessibilityLabel="Message input"
               />

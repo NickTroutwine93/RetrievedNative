@@ -24,6 +24,8 @@ export default function SearchesScreen() {
   const [relativeTimeTick, setRelativeTimeTick] = useState(Date.now());
   const [endingSearch, setEndingSearch] = useState<any>(null);
   const [isEndingSearch, setIsEndingSearch] = useState(false);
+  const searchCardDynamicStyle = { borderColor: palette.border, backgroundColor: palette.surface };
+  const petImagePlaceholderDynamicStyle = { backgroundColor: palette.surfaceMuted };
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -136,11 +138,11 @@ export default function SearchesScreen() {
     }
 
     return items.map((search: any) => (
-      <View key={search.id} style={styles.searchCard}>
+      <View key={search.id} style={[styles.searchCard, searchCardDynamicStyle]}>
         <View style={styles.petCardHeader}>
-          <ThemedText style={styles.petName}>{search?.pet?.Name || 'Unnamed pet'}</ThemedText>
-          <ThemedText style={styles.searchAge}>{formatTimeSinceSearch(search?.Date ?? search?.date)}</ThemedText>
-          <ThemedText style={styles.searchStatus}>Search status: {search.status ?? search.Status ?? 'Unknown'}</ThemedText>
+          <ThemedText style={[styles.petName, { color: palette.text }]}>{search?.pet?.Name || 'Unnamed pet'}</ThemedText>
+          <ThemedText style={[styles.searchAge, { color: palette.primary }]}>{formatTimeSinceSearch(search?.Date ?? search?.date)}</ThemedText>
+          <ThemedText style={[styles.searchStatus, { color: palette.textSecondary }]}>Search status: {search.status ?? search.Status ?? 'Unknown'}</ThemedText>
         </View>
 
         <View style={styles.petCardRow}>
@@ -155,8 +157,8 @@ export default function SearchesScreen() {
               resizeMode="cover"
             />
           ) : (
-            <View style={styles.petImagePlaceholder}>
-              <ThemedText style={styles.petImageText}>No image</ThemedText>
+            <View style={[styles.petImagePlaceholder, petImagePlaceholderDynamicStyle]}>
+              <ThemedText style={[styles.petImageText, { color: palette.textSecondary }]}>No image</ThemedText>
             </View>
           )}
 
@@ -168,7 +170,7 @@ export default function SearchesScreen() {
         </View>
 
         <TouchableOpacity
-          style={[styles.openSearchButton, styles.minTouchTarget]}
+          style={[styles.openSearchButton, styles.minTouchTarget, { backgroundColor: palette.primary }]}
           onPress={() => router.push({ pathname: '/search/[id]', params: { id: search.id } } as any)}
           accessibilityRole="button"
           accessibilityLabel={`Open details for ${search?.pet?.Name || 'search'}`}>
@@ -177,7 +179,7 @@ export default function SearchesScreen() {
 
         {canEndSearch ? (
           <TouchableOpacity
-            style={[styles.endSearchButton, styles.minTouchTarget]}
+            style={[styles.endSearchButton, styles.minTouchTarget, { backgroundColor: palette.danger }]}
             onPress={() => setEndingSearch(search)}
             accessibilityRole="button"
             accessibilityLabel={`End search for ${search?.pet?.Name || 'pet'}`}>

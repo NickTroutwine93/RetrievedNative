@@ -44,6 +44,13 @@ export default function AddSightingScreen() {
   const colorScheme = useColorScheme() ?? 'light';
   const palette = Colors[colorScheme];
   const { id } = useLocalSearchParams<{ id?: string }>();
+  const backButtonDynamicStyle = { backgroundColor: palette.primary };
+  const sectionCardDynamicStyle = { borderColor: palette.border, backgroundColor: palette.surface };
+  const sectionTitleDynamicStyle = { color: palette.text };
+  const sectionHelpDynamicStyle = { color: palette.textSecondary };
+  const detailsInputDynamicStyle = { borderColor: palette.border, backgroundColor: palette.surfaceMuted, color: palette.text };
+  const placeholderBoxDynamicStyle = { borderColor: palette.border, backgroundColor: palette.surfaceMuted };
+  const mapWrapperDynamicStyle = { borderColor: palette.border, backgroundColor: palette.surfaceMuted };
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -187,7 +194,7 @@ export default function AddSightingScreen() {
     <SafeAreaView style={[styles.container, { backgroundColor: palette.background }]}>
       <ThemedView style={[styles.header, { borderBottomColor: palette.border, backgroundColor: palette.surface }]}>
         <TouchableOpacity
-          style={[styles.backButton, styles.minTouchTarget]}
+          style={[styles.backButton, backButtonDynamicStyle, styles.minTouchTarget]}
           onPress={() => router.back()}
           accessibilityRole="button"
           accessibilityLabel="Go back"
@@ -201,15 +208,15 @@ export default function AddSightingScreen() {
         {loading ? (
           <ActivityIndicator size="large" color={palette.primary} />
         ) : error ? (
-          <View style={styles.placeholderBox}>
-            <ThemedText style={styles.placeholderTitle}>Sighting Unavailable</ThemedText>
-            <ThemedText style={styles.placeholderText}>{error}</ThemedText>
+          <View style={[styles.placeholderBox, placeholderBoxDynamicStyle]}>
+            <ThemedText style={[styles.placeholderTitle, { color: palette.text }]}>Sighting Unavailable</ThemedText>
+            <ThemedText style={[styles.placeholderText, { color: palette.textSecondary }]}>{error}</ThemedText>
           </View>
         ) : (
           <>
-            <View style={[styles.sectionCard, { borderColor: palette.border, backgroundColor: palette.surface }]}>
-              <ThemedText style={styles.sectionTitle}>How sure are you?</ThemedText>
-              <ThemedText style={styles.sectionHelp}>Rate your confidence from 1 (lowest) to 5 (highest).</ThemedText>
+            <View style={[styles.sectionCard, sectionCardDynamicStyle]}>
+              <ThemedText style={[styles.sectionTitle, sectionTitleDynamicStyle]}>How sure are you?</ThemedText>
+              <ThemedText style={[styles.sectionHelp, sectionHelpDynamicStyle]}>Rate your confidence from 1 (lowest) to 5 (highest).</ThemedText>
               <View style={styles.confidenceRow}>
                 {[1, 2, 3, 4, 5].map((value) => (
                   <TouchableOpacity
@@ -236,10 +243,10 @@ export default function AddSightingScreen() {
               </View>
             </View>
 
-            <View style={[styles.sectionCard, { borderColor: palette.border, backgroundColor: palette.surface }]}>
-              <ThemedText style={styles.sectionTitle}>Sighting Details</ThemedText>
+            <View style={[styles.sectionCard, sectionCardDynamicStyle]}>
+              <ThemedText style={[styles.sectionTitle, sectionTitleDynamicStyle]}>Sighting Details</ThemedText>
               <TextInput
-                style={styles.detailsInput}
+                style={[styles.detailsInput, detailsInputDynamicStyle]}
                 multiline
                 numberOfLines={5}
                 value={details}
@@ -251,9 +258,9 @@ export default function AddSightingScreen() {
               />
             </View>
 
-            <View style={[styles.sectionCard, { borderColor: palette.border, backgroundColor: palette.surface }]}>
-              <ThemedText style={styles.sectionTitle}>Sighting Location</ThemedText>
-              <ThemedText style={styles.sectionHelp}>Tap the map to drop a sighting marker, or use your current location.</ThemedText>
+            <View style={[styles.sectionCard, sectionCardDynamicStyle]}>
+              <ThemedText style={[styles.sectionTitle, sectionTitleDynamicStyle]}>Sighting Location</ThemedText>
+              <ThemedText style={[styles.sectionHelp, sectionHelpDynamicStyle]}>Tap the map to drop a sighting marker, or use your current location.</ThemedText>
 
               {/*
               <TouchableOpacity
@@ -267,13 +274,13 @@ export default function AddSightingScreen() {
               */}
 
               {selectedLocation ? (
-                <ThemedText style={styles.locationText}>
+                <ThemedText style={[styles.locationText, { color: palette.textSecondary }]}>
                   Selected: {selectedLocation.latitude.toFixed(6)}, {selectedLocation.longitude.toFixed(6)}
                 </ThemedText>
               ) : null}
 
               {searchCenter && MAPTILER_KEY ? (
-                <View style={styles.mapWrapper}>
+                <View style={[styles.mapWrapper, mapWrapperDynamicStyle]}>
                   <MapTilerInteractiveMap
                     center={searchCenter}
                     radiusMiles={Number(search?.Radius ?? search?.radius ?? 5) || 5}
@@ -305,9 +312,9 @@ export default function AddSightingScreen() {
                   />
                 </View>
               ) : (
-                <View style={styles.placeholderBox}>
-                  <ThemedText style={styles.placeholderTitle}>Map Unavailable</ThemedText>
-                  <ThemedText style={styles.placeholderText}>This search is missing a valid map center or the MapTiler key is unavailable.</ThemedText>
+                <View style={[styles.placeholderBox, placeholderBoxDynamicStyle]}>
+                  <ThemedText style={[styles.placeholderTitle, { color: palette.text }]}>Map Unavailable</ThemedText>
+                  <ThemedText style={[styles.placeholderText, { color: palette.textSecondary }]}>This search is missing a valid map center or the MapTiler key is unavailable.</ThemedText>
                 </View>
               )}
             </View>

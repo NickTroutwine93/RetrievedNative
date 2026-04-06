@@ -58,6 +58,8 @@ export default function MessagesScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [currentUserId, setCurrentUserId] = useState('');
+  const threadCardDynamicStyle = { borderColor: palette.border, backgroundColor: palette.surface };
+  const emptyStateDynamicStyle = { borderColor: palette.border, backgroundColor: palette.surfaceMuted };
 
   const ownThreads = currentUserId ? threads.filter((thread) => thread.ownerId === currentUserId) : [];
   const joinedThreads = currentUserId ? threads.filter((thread) => thread.ownerId !== currentUserId) : [];
@@ -78,15 +80,15 @@ export default function MessagesScreen() {
       return (
         <TouchableOpacity
           key={thread.searchId}
-          style={[styles.threadCard, styles.minTouchTarget]}
+          style={[styles.threadCard, threadCardDynamicStyle, styles.minTouchTarget]}
           activeOpacity={0.85}
           accessibilityRole="button"
           accessibilityLabel={`Open message thread for ${thread?.pet?.Name || 'pet search'}`}
           onPress={() => router.push({ pathname: '/messages/[id]', params: { id: thread.searchId } } as any)}>
           <View style={styles.threadHeaderRow}>
-            <ThemedText style={styles.petName}>{thread?.pet?.Name || 'Unnamed pet'}</ThemedText>
+            <ThemedText style={[styles.petName, { color: palette.text }]}>{thread?.pet?.Name || 'Unnamed pet'}</ThemedText>
             <View style={styles.threadMetaColumn}>
-              <ThemedText style={styles.timeText}>{formatRelativeTime(thread?.lastMessage?.createdAt || thread?.lastActivityMs)}</ThemedText>
+              <ThemedText style={[styles.timeText, { color: palette.textSecondary }]}>{formatRelativeTime(thread?.lastMessage?.createdAt || thread?.lastActivityMs)}</ThemedText>
               {thread.unreadCount > 0 ? (
                 <View style={styles.unreadPill}>
                   <ThemedText style={styles.unreadPillText}>New</ThemedText>
@@ -95,12 +97,12 @@ export default function MessagesScreen() {
             </View>
           </View>
 
-          <ThemedText style={styles.participantText}>
+          <ThemedText style={[styles.participantText, { color: palette.textSecondary }]}>
             {isOwner ? 'Searchers: ' : 'Owner: '}
             {participants}
           </ThemedText>
 
-          <ThemedText style={styles.previewText} numberOfLines={2}>
+          <ThemedText style={[styles.previewText, { color: palette.text }]} numberOfLines={2}>
             {thread?.lastMessage?.Text || 'No messages yet. Tap to start the chat.'}
           </ThemedText>
         </TouchableOpacity>
@@ -169,12 +171,12 @@ export default function MessagesScreen() {
         {loading ? (
           <ActivityIndicator size="large" color={palette.primary} />
         ) : error ? (
-          <View style={[styles.emptyStateBox, { borderColor: palette.border, backgroundColor: palette.surfaceMuted }]}>
+          <View style={[styles.emptyStateBox, emptyStateDynamicStyle]}>
             <ThemedText style={[styles.emptyStateTitle, { color: palette.text }]}>Could Not Load Conversations</ThemedText>
             <ThemedText style={[styles.emptyStateBody, { color: palette.textSecondary }]}>{error}</ThemedText>
           </View>
         ) : threads.length === 0 ? (
-          <View style={[styles.emptyStateBox, { borderColor: palette.border, backgroundColor: palette.surfaceMuted }]}>
+          <View style={[styles.emptyStateBox, emptyStateDynamicStyle]}>
             <ThemedText style={[styles.emptyStateTitle, { color: palette.text }]}>No Conversations Yet</ThemedText>
             <ThemedText style={[styles.emptyStateBody, { color: palette.textSecondary }]}>Join an active search in your area or start a search from Home. Threads will appear here automatically.</ThemedText>
           </View>
