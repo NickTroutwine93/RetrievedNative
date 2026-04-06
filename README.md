@@ -1,5 +1,5 @@
-View App on GH Pages: https://nicktroutwine93.github.io/RetrievedNative/
-<img width="231" height="238" alt="image" src="https://github.com/user-attachments/assets/a7d64dc5-7559-409f-a23d-d47e24ed8923" />
+View App on GH Pages: https://nicktroutwine93.github.io/RetrievedNative/<br>
+<img width="231" height="238" alt="image" src="https://github.com/user-attachments/assets/a7d64dc5-7559-409f-a23d-d47e24ed8923" /><br>
 
 
 # Welcome to your Expo app 👋
