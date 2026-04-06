@@ -32,6 +32,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
       - name: Setup Node
         uses: actions/setup-node@v5
         with:
@@ -131,3 +134,25 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+      - name: Wait for site readiness
+        env:
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          set -e
+          echo "Checking site readiness at: ${PAGE_URL}"
+
+          # GitHub Pages can take a short time to propagate after a successful deploy.
+          for attempt in $(seq 1 30); do
+            status=$(curl -L -s -o /dev/null -w "%{http_code}" "${PAGE_URL}")
+            if [ "$status" = "200" ]; then
+              echo "Site is ready (HTTP 200)."
+              exit 0
+            fi
+
+            echo "Attempt ${attempt}/30 -> HTTP ${status}; waiting 10s..."
+            sleep 10
+          done
+
+          echo "Site did not return HTTP 200 within the readiness window."
+          exit 1
