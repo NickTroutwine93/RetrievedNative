@@ -749,6 +749,62 @@ export function subscribeToSearchMessages(db, searchId, onMessages, onError) {
   );
 }
 
+export function subscribeToSearch(db, searchId, viewerUserId, onSearch, onError) {
+  const searchDocRef = doc(db, 'searches', searchId);
+  return onSnapshot(
+    searchDocRef,
+    async (searchDoc) => {
+      if (!searchDoc.exists()) {
+        onSearch(null);
+        return;
+      }
+      try {
+        const hydrated = await hydrateSearchRecord(db, searchDoc, viewerUserId);
+        onSearch(hydrated);
+      } catch (err) {
+        if (typeof onError === 'function') {
+          onError(err);
+        }
+      }
+    },
+    (error) => {
+      console.error('Error subscribing to search:', error);
+      if (typeof onError === 'function') {
+        onError(error);
+      }
+    }
+  );
+}
+
+export function subscribeToActiveSearches(db, viewerUserId, onSearches, onError) {
+  return onSnapshot(
+    collection(db, 'searches'),
+    async (snapshot) => {
+      try {
+        const activeDocs = snapshot.docs.filter((searchDoc) => {
+          const data = searchDoc.data();
+          const status = data.Status ?? data.status;
+          return status === 1;
+        });
+        const hydrated = await Promise.all(
+          activeDocs.map((searchDoc) => hydrateSearchRecord(db, searchDoc, viewerUserId))
+        );
+        onSearches(hydrated);
+      } catch (err) {
+        if (typeof onError === 'function') {
+          onError(err);
+        }
+      }
+    },
+    (error) => {
+      console.error('Error subscribing to active searches:', error);
+      if (typeof onError === 'function') {
+        onError(error);
+      }
+    }
+  );
+}
+
 export async function sendSearchMessage(db, { searchId, senderId, senderName, text }) {
   try {
     const trimmedText = String(text || '').trim();

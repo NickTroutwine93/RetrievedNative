@@ -10,7 +10,7 @@ import { ThemedView } from '../../components/themed-view';
 import { Colors } from '../../constants/theme';
 import { useColorScheme } from '../../hooks/use-color-scheme';
 import { auth, db } from '../../src/services/firebaseClient';
-import { endSearch, getSearchById, getUserData, leaveSearch, markSearchThreadRead, sendSearchMessage, subscribeToSearchMessages } from '../../src/services/userService';
+import { endSearch, getSearchById, getUserData, leaveSearch, markSearchThreadRead, sendSearchMessage, subscribeToSearch, subscribeToSearchMessages } from '../../src/services/userService';
 
 const MAPTILER_KEY = process.env.EXPO_PUBLIC_MAPTILER_API_KEY;
 const petImageSources: Record<string, any> = {
@@ -186,7 +186,27 @@ export default function SearchDetailScreen() {
   );
 
   useEffect(() => {
-    if (!id || !search) {
+    if (!id || !currentUserId) {
+      return;
+    }
+
+    const unsubscribe = subscribeToSearch(
+      db,
+      id,
+      currentUserId,
+      (updatedSearch: any) => {
+        if (updatedSearch) {
+          setSearch(updatedSearch);
+          setLoading(false);
+        }
+      },
+    );
+
+    return unsubscribe;
+  }, [id, currentUserId]);
+
+  useEffect(() => {
+    if (!id) {
       return;
     }
 
@@ -202,7 +222,7 @@ export default function SearchDetailScreen() {
     );
 
     return unsubscribe;
-  }, [id, search]);
+  }, [id]);
 
   const center = search?.Location ?? search?.location;
   const radiusValue = Number(search?.Radius ?? search?.radius);

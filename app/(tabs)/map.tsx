@@ -9,7 +9,7 @@ import { ThemedView } from '../../components/themed-view';
 import { Colors } from '../../constants/theme';
 import { useColorScheme } from '../../hooks/use-color-scheme';
 import { auth, db } from '../../src/services/firebaseClient';
-import { getActiveSearches, getUserData, joinSearch } from '../../src/services/userService';
+import { getUserData, joinSearch, subscribeToActiveSearches } from '../../src/services/userService';
 
 const MAP_ZOOM = 12;
 const PRIVACY_SAFE_MARKER_ZOOM = 13;
@@ -170,35 +170,6 @@ export default function MapScreen() {
       const parsedRadius = Number(account?.radius ?? DEFAULT_RADIUS_MILES);
       const safeRadius = Number.isFinite(parsedRadius) && parsedRadius > 0 ? parsedRadius : DEFAULT_RADIUS_MILES;
       setRadiusMiles(safeRadius);
-
-      const activeSearches = await getActiveSearches(db, account?.id || '');
-      const nearbySearches = activeSearches
-        .map((search) => {
-          const searchLocation = search?.Location ?? search?.location;
-          if (!searchLocation?.latitude || !searchLocation?.longitude) {
-            return null;
-          }
-
-          const distanceMiles = milesBetweenPoints(
-            { latitude: accountLocation.latitude, longitude: accountLocation.longitude },
-            { latitude: searchLocation.latitude, longitude: searchLocation.longitude }
-          );
-
-          return {
-            ...search,
-            distanceMiles,
-          };
-        })
-        .filter((search): search is any => {
-          if (!search) {
-            return false;
-          }
-
-          return search.distanceMiles <= safeRadius;
-        })
-        .sort((a, b) => a.distanceMiles - b.distanceMiles);
-
-      setAreaSearches(nearbySearches);
     } catch (err: any) {
       setCenter(null);
       setAreaSearches([]);
@@ -218,6 +189,39 @@ export default function MapScreen() {
       void loadProfile();
     }, [loadProfile])
   );
+
+  useEffect(() => {
+    if (!center || !currentUserId) {
+      return;
+    }
+
+    const unsubscribe = subscribeToActiveSearches(
+      db,
+      currentUserId,
+      (allSearches: any[]) => {
+        const nearbySearches = allSearches
+          .map((search) => {
+            const searchLocation = search?.Location ?? search?.location;
+            if (!searchLocation?.latitude || !searchLocation?.longitude) {
+              return null;
+            }
+
+            const distanceMiles = milesBetweenPoints(
+              { latitude: center.latitude, longitude: center.longitude },
+              { latitude: searchLocation.latitude, longitude: searchLocation.longitude }
+            );
+
+            return { ...search, distanceMiles };
+          })
+          .filter((search): search is any => search !== null && search.distanceMiles <= radiusMiles)
+          .sort((a, b) => a.distanceMiles - b.distanceMiles);
+
+        setAreaSearches(nearbySearches);
+      },
+    );
+
+    return unsubscribe;
+  }, [center, radiusMiles, currentUserId]);
 
   const showMap = Boolean(center && MAPTILER_KEY && !loading && !error);
   const centerLatitude = center?.latitude ?? 0;
