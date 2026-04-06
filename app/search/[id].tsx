@@ -7,6 +7,8 @@ import { MapTilerTileMap } from '@/components/maptiler-tile-map';
 import { IconSymbol } from '../../components/ui/icon-symbol';
 import { ThemedText } from '../../components/themed-text';
 import { ThemedView } from '../../components/themed-view';
+import { Colors } from '../../constants/theme';
+import { useColorScheme } from '../../hooks/use-color-scheme';
 import { auth, db } from '../../src/services/firebaseClient';
 import { getSearchById, getUserData, leaveSearch, getSearchMessages, markSearchThreadRead } from '../../src/services/userService';
 
@@ -64,6 +66,8 @@ function toMillis(value: any) {
 }
 
 export default function SearchDetailScreen() {
+  const colorScheme = useColorScheme() ?? 'light';
+  const palette = Colors[colorScheme];
   const { id } = useLocalSearchParams<{ id?: string }>();
   const [search, setSearch] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -142,8 +146,8 @@ export default function SearchDetailScreen() {
     ? search.Searchers
     : [];
   const ownerId = search?.owner ?? search?.OwnerID;
-  const canAddSighting = Boolean(currentUserId && ownerId && currentUserId !== ownerId && searcherIds.includes(currentUserId));
-  const canLeaveSearch = canAddSighting;
+  const canAddSighting = Boolean(currentUserId && ownerId && (currentUserId === ownerId || searcherIds.includes(currentUserId)));
+  const canLeaveSearch = Boolean(currentUserId && ownerId && currentUserId !== ownerId && searcherIds.includes(currentUserId));
   const sightingsWithIndex = Array.isArray(search?.sightings)
     ? (() => {
         const chronological = [...search.sightings].sort(
@@ -300,9 +304,14 @@ export default function SearchDetailScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <ThemedView style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+    <SafeAreaView style={[styles.container, { backgroundColor: palette.background }]}>
+      <ThemedView style={[styles.header, { borderBottomColor: palette.border, backgroundColor: palette.surface }]}>
+        <TouchableOpacity
+          style={[styles.backButton, styles.minTouchTarget]}
+          onPress={() => router.back()}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+          accessibilityHint="Returns to the previous screen">
           <IconSymbol size={18} name="chevron.right" color="#ffffff" style={styles.backIcon} />
           <ThemedText style={styles.backButtonText}>Back</ThemedText>
         </TouchableOpacity>
@@ -311,7 +320,7 @@ export default function SearchDetailScreen() {
 
       <ScrollView style={styles.scrollContainer} contentContainerStyle={styles.scrollContent}>
         {loading ? (
-          <ActivityIndicator size="large" color="#0076C0" />
+          <ActivityIndicator size="large" color={palette.primary} />
         ) : error ? (
           <View style={styles.placeholderBox}>
             <ThemedText style={styles.placeholderTitle}>Search Unavailable</ThemedText>
@@ -319,7 +328,7 @@ export default function SearchDetailScreen() {
           </View>
         ) : search ? (
           <>
-            <View style={styles.petCard}>
+            <View style={[styles.petCard, { borderColor: palette.border, backgroundColor: palette.surface }]}>
               <ThemedText style={styles.petName}>{search?.pet?.Name || 'Unnamed pet'}</ThemedText>
               <ThemedText style={styles.searchAge}>{formatTimeSinceSearch(search?.Date ?? search?.date)}</ThemedText>
 
@@ -351,14 +360,25 @@ export default function SearchDetailScreen() {
             </View>
 
             <View style={styles.mapSection}>
-              <ThemedText type="subtitle" style={styles.sectionTitle}>Search Area</ThemedText>
+              <ThemedText type="subtitle" style={[styles.sectionTitle, { color: palette.text }]}>Search Area</ThemedText>
               {canAddSighting ? (
-                <TouchableOpacity style={styles.addSightingButton} onPress={() => router.push({ pathname: '/search/[id]/sighting', params: { id } } as any)}>
+                <TouchableOpacity
+                  style={[styles.addSightingButton, styles.minTouchTarget, { backgroundColor: palette.primary }]}
+                  onPress={() => router.push({ pathname: '/search/[id]/sighting', params: { id } } as any)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Add a sighting"
+                  accessibilityHint="Opens the form to submit a sighting">
                   <ThemedText style={styles.addSightingButtonText}>Add Sighting</ThemedText>
                 </TouchableOpacity>
               ) : null}
               {canLeaveSearch ? (
-                <TouchableOpacity style={styles.leaveSearchButton} onPress={handleLeaveSearch} disabled={leavingSearch}>
+                <TouchableOpacity
+                  style={[styles.leaveSearchButton, styles.minTouchTarget, { backgroundColor: palette.danger }]}
+                  onPress={handleLeaveSearch}
+                  disabled={leavingSearch}
+                  accessibilityRole="button"
+                  accessibilityLabel="Leave search"
+                  accessibilityHint="Removes you from this active search">
                   <ThemedText style={styles.leaveSearchButtonText}>{leavingSearch ? 'Leaving...' : 'Leave Search'}</ThemedText>
                 </TouchableOpacity>
               ) : null}
@@ -373,7 +393,7 @@ export default function SearchDetailScreen() {
                     radiusFillColor="rgba(0, 102, 255, 0.10)"
                     radiusBorderColor="rgba(0, 102, 255, 0.38)"
                     centerMarker="house"
-                    centerMarkerColor="#0a5df0"
+                    centerMarkerColor={palette.primary}
                     markers={sightingMarkers}
                     containerStyle={styles.mapTilesLayer}
                   />
@@ -395,7 +415,10 @@ export default function SearchDetailScreen() {
                 <TouchableOpacity
                   style={[styles.sightingsHeaderButton, sightingsExpanded && styles.sightingsHeaderButtonExpanded]}
                   onPress={() => setSightingsExpanded((prev) => !prev)}
-                  activeOpacity={0.7}>
+                  activeOpacity={0.7}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Sightings section, ${sightingsWithIndex.length} items`}
+                  accessibilityState={{ expanded: sightingsExpanded }}>
                   <View style={styles.sightingsHeaderContent}>
                     <View style={styles.sightingsHeaderTextWrap}>
                       <ThemedText type="subtitle" style={styles.sectionTitle}>Sightings ({sightingsWithIndex.length})</ThemedText>
@@ -405,7 +428,7 @@ export default function SearchDetailScreen() {
                       <IconSymbol
                         size={18}
                         name="chevron.right"
-                        color="#0a5df0"
+                        color={palette.primary}
                         style={sightingsExpanded ? styles.sightingsChevronIconExpanded : undefined}
                       />
                     </View>
@@ -423,19 +446,19 @@ export default function SearchDetailScreen() {
                       <View style={styles.sightingTilesSection}>
                         {sightingsWithIndex.map((sighting: any) => {
                           return (
-                            <TouchableOpacity
+                            <View
                               key={sighting.id}
                               style={styles.sightingTile}>
                               <View style={[styles.sightingTileBadge, { backgroundColor: getConfidenceColor(sighting.confidence) }]}>
                                 <ThemedText style={[styles.sightingTileBadgeText, { color: getConfidenceTextColor(sighting.confidence) }]}>{sighting.markerIndex}</ThemedText>
                               </View>
-                              <ThemedText style={styles.sightingTileTitle}>Sighting #{sighting.markerIndex}</ThemedText>
+                              <ThemedText style={[styles.sightingTileTitle, { color: palette.text }]}>Sighting #{sighting.markerIndex}</ThemedText>
                               <ThemedText style={styles.sightingTileMeta}>Reported by {sighting.reporterName} • {formatRelativeTime(sighting.createdAt)}</ThemedText>
                               <ThemedText style={styles.sightingTileMeta}>Confidence: {sighting.confidence}/5 • {sighting.latitude.toFixed(5)}, {sighting.longitude.toFixed(5)}</ThemedText>
                               {sighting.details ? (
                                 <ThemedText style={styles.sightingTileDetails}>{sighting.details}</ThemedText>
                               ) : null}
-                            </TouchableOpacity>
+                            </View>
                           );
                         })}
                       </View>
@@ -447,9 +470,12 @@ export default function SearchDetailScreen() {
 
             <View style={styles.messagesContainer}>
               <TouchableOpacity
-                style={[styles.messagesHeaderButton, messagesExpanded && styles.messagesHeaderButtonExpanded]}
+                style={[styles.messagesHeaderButton, messagesExpanded && styles.messagesHeaderButtonExpanded, styles.minTouchTarget]}
                 onPress={handleToggleMessages}
-                activeOpacity={0.7}>
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel={`Messages section, ${messages.length} messages${hasUnreadMessages ? ', unread messages' : ''}`}
+                accessibilityState={{ expanded: messagesExpanded }}>
                 <View style={styles.messagesHeaderContent}>
                   <View style={styles.messagesHeaderTextWrap}>
                     <ThemedText type="subtitle" style={styles.sectionTitle}>Messages ({messages.length})</ThemedText>
@@ -459,7 +485,7 @@ export default function SearchDetailScreen() {
                     <IconSymbol
                       size={18}
                       name="chevron.right"
-                      color="#0a5df0"
+                      color={palette.primary}
                       style={messagesExpanded ? styles.messagesChevronIconExpanded : undefined}
                     />
                     {hasUnreadMessages ? <View style={styles.messagesUnreadBadge} /> : null}
@@ -494,9 +520,12 @@ export default function SearchDetailScreen() {
 
             <View style={styles.searchersContainer}>
               <TouchableOpacity
-                style={[styles.searchersHeaderButton, searchersExpanded && styles.searchersHeaderButtonExpanded]}
+                style={[styles.searchersHeaderButton, searchersExpanded && styles.searchersHeaderButtonExpanded, styles.minTouchTarget]}
                 onPress={() => setSearchersExpanded((prev) => !prev)}
-                activeOpacity={0.7}>
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel={`Joined searchers section, ${Array.isArray(search?.searcherNames) ? search.searcherNames.length : 0} members`}
+                accessibilityState={{ expanded: searchersExpanded }}>
                 <View style={styles.searchersHeaderContent}>
                   <View style={styles.searchersHeaderTextWrap}>
                     <ThemedText type="subtitle" style={styles.sectionTitle}>Joined Searchers ({Array.isArray(search?.searcherNames) ? search.searcherNames.length : 0})</ThemedText>
@@ -506,7 +535,7 @@ export default function SearchDetailScreen() {
                     <IconSymbol
                       size={18}
                       name="chevron.right"
-                      color="#0a5df0"
+                      color={palette.primary}
                       style={searchersExpanded ? styles.searchersChevronIconExpanded : undefined}
                     />
                   </View>
@@ -551,6 +580,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 12,
     paddingVertical: 8,
+  },
+  minTouchTarget: {
+    minHeight: 44,
+    justifyContent: 'center',
   },
   backIcon: {
     transform: [{ rotate: '180deg' }],

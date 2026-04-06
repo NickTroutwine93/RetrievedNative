@@ -7,6 +7,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { MapTilerInteractiveMap } from '../../../components/maptiler-interactive-map';
 import { ThemedText } from '../../../components/themed-text';
 import { ThemedView } from '../../../components/themed-view';
+import { Colors } from '../../../constants/theme';
+import { useColorScheme } from '../../../hooks/use-color-scheme';
 import { auth, db } from '../../../src/services/firebaseClient';
 import { getSearchById, getUserData, submitSearchSighting } from '../../../src/services/userService';
 
@@ -39,6 +41,8 @@ function getConfidenceTextColor(confidence: number) {
 }
 
 export default function AddSightingScreen() {
+  const colorScheme = useColorScheme() ?? 'light';
+  const palette = Colors[colorScheme];
   const { id } = useLocalSearchParams<{ id?: string }>();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -90,8 +94,9 @@ export default function AddSightingScreen() {
         ? nextSearch.Searchers
         : [];
 
-      if (nextAccount.id === ownerId || !searcherIds.includes(nextAccount.id)) {
-        setError('Only joined searchers can submit sightings for this search.');
+      const canSubmitSighting = nextAccount.id === ownerId || searcherIds.includes(nextAccount.id);
+      if (!canSubmitSighting) {
+        setError('Only the pet owner or joined searchers can submit sightings for this search.');
         return;
       }
 
@@ -179,9 +184,14 @@ export default function AddSightingScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <ThemedView style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+    <SafeAreaView style={[styles.container, { backgroundColor: palette.background }]}>
+      <ThemedView style={[styles.header, { borderBottomColor: palette.border, backgroundColor: palette.surface }]}>
+        <TouchableOpacity
+          style={[styles.backButton, styles.minTouchTarget]}
+          onPress={() => router.back()}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+          accessibilityHint="Returns to search details">
           <ThemedText style={styles.backButtonText}>Back</ThemedText>
         </TouchableOpacity>
         <ThemedText type="title" style={styles.headerTitle}>Report Sighting</ThemedText>
@@ -189,7 +199,7 @@ export default function AddSightingScreen() {
 
       <ScrollView style={styles.scrollContainer} contentContainerStyle={styles.scrollContent} scrollEnabled={!isMapInteracting}>
         {loading ? (
-          <ActivityIndicator size="large" color="#0076C0" />
+          <ActivityIndicator size="large" color={palette.primary} />
         ) : error ? (
           <View style={styles.placeholderBox}>
             <ThemedText style={styles.placeholderTitle}>Sighting Unavailable</ThemedText>
@@ -197,7 +207,7 @@ export default function AddSightingScreen() {
           </View>
         ) : (
           <>
-            <View style={styles.sectionCard}>
+            <View style={[styles.sectionCard, { borderColor: palette.border, backgroundColor: palette.surface }]}>
               <ThemedText style={styles.sectionTitle}>How sure are you?</ThemedText>
               <ThemedText style={styles.sectionHelp}>Rate your confidence from 1 (lowest) to 5 (highest).</ThemedText>
               <View style={styles.confidenceRow}>
@@ -209,7 +219,10 @@ export default function AddSightingScreen() {
                       { borderColor: getConfidenceColor(value) },
                       confidence === value && { backgroundColor: getConfidenceColor(value) },
                     ]}
-                    onPress={() => setConfidence(value)}>
+                    onPress={() => setConfidence(value)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Confidence ${value} of 5`}
+                    accessibilityState={{ selected: confidence === value }}>
                     <ThemedText
                       style={[
                         styles.confidenceChipText,
@@ -223,7 +236,7 @@ export default function AddSightingScreen() {
               </View>
             </View>
 
-            <View style={styles.sectionCard}>
+            <View style={[styles.sectionCard, { borderColor: palette.border, backgroundColor: palette.surface }]}>
               <ThemedText style={styles.sectionTitle}>Sighting Details</ThemedText>
               <TextInput
                 style={styles.detailsInput}
@@ -232,15 +245,22 @@ export default function AddSightingScreen() {
                 value={details}
                 onChangeText={setDetails}
                 placeholder="What did you see? Which direction was the dog moving? Any landmarks or behavior details?"
+                placeholderTextColor={palette.textMuted}
+                accessibilityLabel="Sighting details"
                 textAlignVertical="top"
               />
             </View>
 
-            <View style={styles.sectionCard}>
+            <View style={[styles.sectionCard, { borderColor: palette.border, backgroundColor: palette.surface }]}>
               <ThemedText style={styles.sectionTitle}>Sighting Location</ThemedText>
               <ThemedText style={styles.sectionHelp}>Tap the map to drop a sighting marker, or use your current location.</ThemedText>
 
-              <TouchableOpacity style={styles.useLocationButton} onPress={handleUseCurrentLocation}>
+              <TouchableOpacity
+                style={[styles.useLocationButton, styles.minTouchTarget, { backgroundColor: palette.primary }]}
+                onPress={handleUseCurrentLocation}
+                accessibilityRole="button"
+                accessibilityLabel="Use current location"
+                accessibilityHint="Uses your GPS location as the sighting location">
                 <ThemedText style={styles.useLocationButtonText}>Use Current Location</ThemedText>
               </TouchableOpacity>
 
@@ -259,7 +279,7 @@ export default function AddSightingScreen() {
                     zoom={12}
                     styleId="streets-v4"
                     centerMarker="house"
-                    centerMarkerColor="#0a5df0"
+                    centerMarkerColor={palette.primary}
                     centerMarkerSize={14}
                     radiusVisualScale={0.68}
                     markerSize={16}
@@ -290,7 +310,13 @@ export default function AddSightingScreen() {
               )}
             </View>
 
-            <TouchableOpacity style={styles.submitButton} onPress={handleSubmit} disabled={saving}>
+            <TouchableOpacity
+              style={[styles.submitButton, styles.minTouchTarget, { backgroundColor: palette.primary }]}
+              onPress={handleSubmit}
+              disabled={saving}
+              accessibilityRole="button"
+              accessibilityLabel="Submit sighting"
+              accessibilityHint="Submits your confidence, details and selected location">
               <ThemedText style={styles.submitButtonText}>{saving ? 'Submitting...' : 'Submit Sighting'}</ThemedText>
             </TouchableOpacity>
           </>
@@ -317,6 +343,10 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 8,
+  },
+  minTouchTarget: {
+    minHeight: 44,
+    justifyContent: 'center',
   },
   backButtonText: {
     color: '#fff',

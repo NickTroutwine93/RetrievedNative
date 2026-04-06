@@ -15,6 +15,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ThemedText } from '../../components/themed-text';
 import { ThemedView } from '../../components/themed-view';
+import { IconSymbol } from '../../components/ui/icon-symbol';
+import { Colors } from '../../constants/theme';
+import { useColorScheme } from '../../hooks/use-color-scheme';
 import { auth, db } from '../../src/services/firebaseClient';
 import {
   getSearchById,
@@ -58,6 +61,8 @@ function formatMessageTime(value: any) {
 }
 
 export default function SearchMessagesScreen() {
+  const colorScheme = useColorScheme() ?? 'light';
+  const palette = Colors[colorScheme];
   const { id } = useLocalSearchParams<{ id?: string }>();
   const scrollViewRef = useRef<ScrollView | null>(null);
 
@@ -201,22 +206,28 @@ export default function SearchMessagesScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: palette.background }]}>
       <KeyboardAvoidingView style={styles.container} behavior={Platform.select({ ios: 'padding', default: undefined })}>
-        <ThemedView style={styles.header}>
-          <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+        <ThemedView style={[styles.header, { borderBottomColor: palette.border, backgroundColor: palette.surface }]}>
+          <TouchableOpacity
+            style={[styles.backButton, styles.minTouchTarget]}
+            onPress={() => router.back()}
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
+            accessibilityHint="Returns to the messages tab">
+            <IconSymbol size={18} name="chevron.right" color="#ffffff" style={styles.backIcon} />
             <ThemedText style={styles.backButtonText}>Back</ThemedText>
           </TouchableOpacity>
           <ThemedText type="title" style={styles.headerTitle}>Messages</ThemedText>
-          <ThemedText style={styles.headerSubtitle}>{search?.pet?.Name ? `Search chat: ${search.pet.Name}` : 'Search chat'}</ThemedText>
+          <ThemedText style={[styles.headerSubtitle, { color: palette.textSecondary }]}>{search?.pet?.Name ? `Search chat: ${search.pet.Name}` : 'Search chat'}</ThemedText>
         </ThemedView>
 
         {loading ? (
           <View style={styles.loadingWrap}>
-            <ActivityIndicator size="large" color="#0076C0" />
+            <ActivityIndicator size="large" color={palette.primary} />
           </View>
         ) : error ? (
-          <View style={styles.errorBox}>
+          <View style={[styles.errorBox, { borderColor: palette.danger, backgroundColor: palette.surfaceMuted }]}>
             <ThemedText style={styles.errorTitle}>Chat Unavailable</ThemedText>
             <ThemedText style={styles.errorBody}>{error}</ThemedText>
           </View>
@@ -248,12 +259,18 @@ export default function SearchMessagesScreen() {
                 value={draft}
                 onChangeText={setDraft}
                 placeholder="Type an update for the team"
-                placeholderTextColor="#637684"
+                placeholderTextColor={palette.textMuted}
                 multiline
                 style={styles.input}
                 editable={!sending}
+                accessibilityLabel="Message input"
               />
-              <TouchableOpacity style={[styles.sendButton, sending && styles.sendButtonDisabled]} onPress={handleSend} disabled={sending}>
+              <TouchableOpacity
+                style={[styles.sendButton, styles.minTouchTarget, { backgroundColor: palette.primary }, sending && styles.sendButtonDisabled]}
+                onPress={handleSend}
+                disabled={sending}
+                accessibilityRole="button"
+                accessibilityLabel="Send message">
                 <ThemedText style={styles.sendButtonText}>{sending ? 'Sending...' : 'Send'}</ThemedText>
               </TouchableOpacity>
             </View>
@@ -278,10 +295,20 @@ const styles = StyleSheet.create({
   },
   backButton: {
     alignSelf: 'flex-start',
-    backgroundColor: '#0a5df0',
+    backgroundColor: '#3d3d3d',
+    flexDirection: 'row',
+    alignItems: 'center',
     borderRadius: 8,
     paddingHorizontal: 12,
-    paddingVertical: 7,
+    paddingVertical: 8,
+  },
+  backIcon: {
+    transform: [{ rotate: '180deg' }],
+    marginRight: 4,
+  },
+  minTouchTarget: {
+    minHeight: 44,
+    justifyContent: 'center',
   },
   backButtonText: {
     color: '#fff',

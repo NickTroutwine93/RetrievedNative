@@ -5,7 +5,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { MapTilerTileMap } from '../../components/maptiler-tile-map';
+import { MapTilerTileMap } from '@/components/maptiler-tile-map';
 import { ThemedText } from '../../components/themed-text';
 import { ThemedView } from '../../components/themed-view';
 import { IconSymbol } from '../../components/ui/icon-symbol';
@@ -737,7 +737,17 @@ export default function HomeScreen() {
             <ThemedText style={styles.profileModalText}>Update your profile and home location settings.</ThemedText>
             <TextInput style={styles.input} value={profileFirstName} onChangeText={setProfileFirstName} placeholder="First Name" />
             <TextInput style={styles.input} value={profileLastName} onChangeText={setProfileLastName} placeholder="Last Name" />
-            <TextInput style={styles.input} value={profileRadius} onChangeText={setProfileRadius} placeholder="Notification Radius (miles)" keyboardType="numeric" />
+            <View style={styles.radiusInputContainer}>
+              <TextInput 
+                style={styles.radiusInput} 
+                value={profileRadius} 
+                onChangeText={setProfileRadius} 
+                placeholder="5" 
+                keyboardType="number-pad"
+                maxLength={3}
+              />
+              <ThemedText style={styles.radiusLabel}>miles</ThemedText>
+            </View>
             <TextInput
               style={[styles.input, styles.addressInput]}
               value={profileAddress}
@@ -1328,5 +1338,27 @@ const styles = StyleSheet.create({
   addRemoveText: {
     color: '#fff',
     fontWeight: 'bold',
+  },
+  radiusInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+    gap: 8,
+  },
+  radiusInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#ccc',
+    padding: 12,
+    borderRadius: 8,
+    height: 48,
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  radiusLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#2B3A4A',
+    minWidth: 45,
   },
 });

@@ -5,6 +5,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ThemedText } from '../../components/themed-text';
 import { ThemedView } from '../../components/themed-view';
+import { Colors } from '../../constants/theme';
+import { useColorScheme } from '../../hooks/use-color-scheme';
 import { auth, db } from '../../src/services/firebaseClient';
 import { subscribeUserMessageThreads } from '../../src/services/userService';
 
@@ -50,6 +52,8 @@ function formatRelativeTime(value: any) {
 }
 
 export default function MessagesScreen() {
+  const colorScheme = useColorScheme() ?? 'light';
+  const palette = Colors[colorScheme];
   const [threads, setThreads] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -74,8 +78,10 @@ export default function MessagesScreen() {
       return (
         <TouchableOpacity
           key={thread.searchId}
-          style={styles.threadCard}
+          style={[styles.threadCard, styles.minTouchTarget]}
           activeOpacity={0.85}
+          accessibilityRole="button"
+          accessibilityLabel={`Open message thread for ${thread?.pet?.Name || 'pet search'}`}
           onPress={() => router.push({ pathname: '/messages/[id]', params: { id: thread.searchId } } as any)}>
           <View style={styles.threadHeaderRow}>
             <ThemedText style={styles.petName}>{thread?.pet?.Name || 'Unnamed pet'}</ThemedText>
@@ -153,40 +159,40 @@ export default function MessagesScreen() {
   }, [startLiveThreads]);
 
   return (
-    <SafeAreaView style={styles.container}>
-      <ThemedView style={styles.header}>
+    <SafeAreaView style={[styles.container, { backgroundColor: palette.background }]}>
+      <ThemedView style={[styles.header, { borderBottomColor: palette.border, backgroundColor: palette.surface }]}>
         <ThemedText type="title" style={styles.headerTitle}>Messages</ThemedText>
-        <ThemedText style={styles.headerSubtitle}>Chat with owners and active searchers for live pet searches.</ThemedText>
+        <ThemedText style={[styles.headerSubtitle, { color: palette.textSecondary }]}>Chat with owners and active searchers for live pet searches.</ThemedText>
       </ThemedView>
 
       <ScrollView style={styles.scrollContainer} contentContainerStyle={styles.scrollContent}>
         {loading ? (
-          <ActivityIndicator size="large" color="#0076C0" />
+          <ActivityIndicator size="large" color={palette.primary} />
         ) : error ? (
-          <View style={styles.emptyStateBox}>
-            <ThemedText style={styles.emptyStateTitle}>Could Not Load Conversations</ThemedText>
-            <ThemedText style={styles.emptyStateBody}>{error}</ThemedText>
+          <View style={[styles.emptyStateBox, { borderColor: palette.border, backgroundColor: palette.surfaceMuted }]}>
+            <ThemedText style={[styles.emptyStateTitle, { color: palette.text }]}>Could Not Load Conversations</ThemedText>
+            <ThemedText style={[styles.emptyStateBody, { color: palette.textSecondary }]}>{error}</ThemedText>
           </View>
         ) : threads.length === 0 ? (
-          <View style={styles.emptyStateBox}>
-            <ThemedText style={styles.emptyStateTitle}>No Conversations Yet</ThemedText>
-            <ThemedText style={styles.emptyStateBody}>Join an active search in your area or start a search from Home. Threads will appear here automatically.</ThemedText>
+          <View style={[styles.emptyStateBox, { borderColor: palette.border, backgroundColor: palette.surfaceMuted }]}>
+            <ThemedText style={[styles.emptyStateTitle, { color: palette.text }]}>No Conversations Yet</ThemedText>
+            <ThemedText style={[styles.emptyStateBody, { color: palette.textSecondary }]}>Join an active search in your area or start a search from Home. Threads will appear here automatically.</ThemedText>
           </View>
         ) : (
           <>
             <View style={styles.sectionBlock}>
-              <ThemedText style={styles.sectionHeader}>Your Pets</ThemedText>
+              <ThemedText style={[styles.sectionHeader, { color: palette.text }]}>Your Pets</ThemedText>
               {ownThreads.length === 0 ? (
-                <ThemedText style={styles.emptySectionText}>No active message threads for searches you started.</ThemedText>
+                <ThemedText style={[styles.emptySectionText, { color: palette.textMuted }]}>No active message threads for searches you started.</ThemedText>
               ) : (
                 renderThreadCards(ownThreads)
               )}
             </View>
 
             <View style={styles.sectionBlock}>
-              <ThemedText style={styles.sectionHeader}>Searches Joined</ThemedText>
+              <ThemedText style={[styles.sectionHeader, { color: palette.text }]}>Searches Joined</ThemedText>
               {joinedThreads.length === 0 ? (
-                <ThemedText style={styles.emptySectionText}>No message threads from joined searches yet.</ThemedText>
+                <ThemedText style={[styles.emptySectionText, { color: palette.textMuted }]}>No message threads from joined searches yet.</ThemedText>
               ) : (
                 renderThreadCards(joinedThreads)
               )}
@@ -257,10 +263,13 @@ const styles = StyleSheet.create({
   },
   threadCard: {
     borderWidth: 1,
-    borderColor: '#7a8a8f',
+    borderColor: '#C6D4E3',
     borderRadius: 12,
     padding: 14,
-    backgroundColor: '#BFCECF',
+    backgroundColor: '#FFFFFF',
+  },
+  minTouchTarget: {
+    minHeight: 44,
   },
   threadHeaderRow: {
     flexDirection: 'row',
@@ -276,16 +285,16 @@ const styles = StyleSheet.create({
   petName: {
     fontWeight: '800',
     fontSize: 20,
-    color: '#2B3A4A',
+    color: '#13283B',
     flexShrink: 1,
   },
   timeText: {
-    color: '#37536B',
+    color: '#3F5568',
     fontWeight: '700',
     fontSize: 12,
   },
   unreadPill: {
-    backgroundColor: '#1f4f8f',
+    backgroundColor: '#0B5CAB',
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 999,
@@ -296,12 +305,12 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   participantText: {
-    color: '#37536B',
+    color: '#3F5568',
     fontSize: 13,
     marginBottom: 8,
   },
   previewText: {
-    color: '#2f4557',
+    color: '#13283B',
     fontSize: 14,
     lineHeight: 20,
   },

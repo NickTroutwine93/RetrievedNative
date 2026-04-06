@@ -5,6 +5,8 @@ import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ThemedText } from '../../components/themed-text';
 import { ThemedView } from '../../components/themed-view';
+import { Colors } from '../../constants/theme';
+import { useColorScheme } from '../../hooks/use-color-scheme';
 import { auth, db } from '../../src/services/firebaseClient';
 import { endSearch, getActiveSearches, getUserData, getUserSearches } from '../../src/services/userService';
 
@@ -14,6 +16,8 @@ const petImageSources: Record<string, any> = {
 };
 
 export default function SearchesScreen() {
+  const colorScheme = useColorScheme() ?? 'light';
+  const palette = Colors[colorScheme];
   const [ownSearches, setOwnSearches] = useState<any[]>([]);
   const [joinedSearches, setJoinedSearches] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -163,12 +167,20 @@ export default function SearchesScreen() {
           </View>
         </View>
 
-        <TouchableOpacity style={styles.openSearchButton} onPress={() => router.push({ pathname: '/search/[id]', params: { id: search.id } } as any)}>
+        <TouchableOpacity
+          style={[styles.openSearchButton, styles.minTouchTarget]}
+          onPress={() => router.push({ pathname: '/search/[id]', params: { id: search.id } } as any)}
+          accessibilityRole="button"
+          accessibilityLabel={`Open details for ${search?.pet?.Name || 'search'}`}>
           <ThemedText style={styles.openSearchButtonText}>Open Details</ThemedText>
         </TouchableOpacity>
 
         {canEndSearch ? (
-          <TouchableOpacity style={styles.endSearchButton} onPress={() => setEndingSearch(search)}>
+          <TouchableOpacity
+            style={[styles.endSearchButton, styles.minTouchTarget]}
+            onPress={() => setEndingSearch(search)}
+            accessibilityRole="button"
+            accessibilityLabel={`End search for ${search?.pet?.Name || 'pet'}`}>
             <ThemedText style={styles.endSearchButtonText}>End Search</ThemedText>
           </TouchableOpacity>
         ) : null}
@@ -177,8 +189,8 @@ export default function SearchesScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <ThemedView style={styles.header}>
+    <SafeAreaView style={[styles.container, { backgroundColor: palette.background }]}>
+      <ThemedView style={[styles.header, { borderBottomColor: palette.border, backgroundColor: palette.surface }]}>
         <ThemedText type="title" style={styles.headerTitle}>Your Searches</ThemedText>
       </ThemedView>
 
@@ -188,18 +200,18 @@ export default function SearchesScreen() {
         ) : (
           <>
             <View style={styles.sectionBlock}>
-              <ThemedText style={styles.sectionHeader}>Your Pets</ThemedText>
+              <ThemedText style={[styles.sectionHeader, { color: palette.text }]}>Your Pets</ThemedText>
               {ownSearches.length === 0 ? (
-                <ThemedText style={styles.emptySectionText}>You have no active searches for your pets.</ThemedText>
+                <ThemedText style={[styles.emptySectionText, { color: palette.textMuted }]}>You have no active searches for your pets.</ThemedText>
               ) : (
                 renderSearchCards(ownSearches, true)
               )}
             </View>
 
             <View style={styles.sectionBlock}>
-              <ThemedText style={styles.sectionHeader}>Searches Joined</ThemedText>
+              <ThemedText style={[styles.sectionHeader, { color: palette.text }]}>Searches Joined</ThemedText>
               {joinedSearches.length === 0 ? (
-                <ThemedText style={styles.emptySectionText}>You have not joined any active searches.</ThemedText>
+                <ThemedText style={[styles.emptySectionText, { color: palette.textMuted }]}>You have not joined any active searches.</ThemedText>
               ) : (
                 renderSearchCards(joinedSearches, false)
               )}
@@ -209,22 +221,22 @@ export default function SearchesScreen() {
       </ScrollView>
 
       <Modal animationType="fade" transparent={true} visible={Boolean(endingSearch)} onRequestClose={() => !isEndingSearch && setEndingSearch(null)}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+        <View style={[styles.modalOverlay, { backgroundColor: palette.overlay }]}>
+          <View style={[styles.modalContent, { backgroundColor: palette.surface, borderColor: palette.border }] }>
             <ThemedText type="title" style={styles.modalTitle}>End Search</ThemedText>
-            <ThemedText style={styles.modalBody}>
+            <ThemedText style={[styles.modalBody, { color: palette.textSecondary }]}>
               Was {endingSearch?.pet?.Name ?? 'this pet'} found?
             </ThemedText>
 
-            <TouchableOpacity style={styles.foundButton} onPress={() => handleFinishSearch(true)} disabled={isEndingSearch}>
+            <TouchableOpacity style={[styles.foundButton, { backgroundColor: palette.success }]} onPress={() => handleFinishSearch(true)} disabled={isEndingSearch}>
               <ThemedText style={styles.modalButtonText}>{isEndingSearch ? 'Saving...' : 'Found'}</ThemedText>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.notFoundButton} onPress={() => handleFinishSearch(false)} disabled={isEndingSearch}>
+            <TouchableOpacity style={[styles.notFoundButton, { backgroundColor: palette.danger }]} onPress={() => handleFinishSearch(false)} disabled={isEndingSearch}>
               <ThemedText style={styles.modalButtonText}>{isEndingSearch ? 'Saving...' : 'Not Found'}</ThemedText>
             </TouchableOpacity>
 
-            <TouchableOpacity style={styles.cancelButton} onPress={() => setEndingSearch(null)} disabled={isEndingSearch}>
+            <TouchableOpacity style={[styles.cancelButton, { backgroundColor: palette.textMuted }]} onPress={() => setEndingSearch(null)} disabled={isEndingSearch}>
               <ThemedText style={styles.cancelButtonText}>Cancel</ThemedText>
             </TouchableOpacity>
           </View>
@@ -273,8 +285,8 @@ const styles = StyleSheet.create({
     marginBottom: 14,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#7a8a8f',
-    backgroundColor: '#BFCECF',
+    borderColor: '#C6D4E3',
+    backgroundColor: '#FFFFFF',
   },
   petCardHeader: {
     marginBottom: 8,
@@ -282,12 +294,12 @@ const styles = StyleSheet.create({
   petName: {
     fontWeight: 'bold',
     fontSize: 22,
-    color: '#2B3A4A',
+    color: '#13283B',
     marginBottom: 4,
   },
   searchAge: {
     fontSize: 12,
-    color: '#0a5df0',
+    color: '#0B5CAB',
     fontWeight: '700',
     marginBottom: 4,
   },
@@ -309,7 +321,7 @@ const styles = StyleSheet.create({
   petImagePlaceholder: {
     width: 110,
     height: 110,
-    backgroundColor: '#D9DDE0',
+    backgroundColor: '#EAF1F8',
     borderRadius: 10,
     justifyContent: 'center',
     alignItems: 'center',
@@ -321,10 +333,10 @@ const styles = StyleSheet.create({
   searchStatus: {
     fontWeight: '600',
     marginBottom: 4,
-    color: '#37536B',
+    color: '#3F5568',
   },
   openSearchButton: {
-    backgroundColor: '#1F4F8F',
+    backgroundColor: '#0B5CAB',
     paddingVertical: 10,
     paddingHorizontal: 18,
     borderRadius: 8,
@@ -336,12 +348,16 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   endSearchButton: {
-    backgroundColor: '#8F3B1F',
+    backgroundColor: '#8F2D2D',
     paddingVertical: 10,
     paddingHorizontal: 18,
     borderRadius: 8,
     alignSelf: 'center',
     marginTop: 10,
+  },
+  minTouchTarget: {
+    minHeight: 44,
+    justifyContent: 'center',
   },
   endSearchButtonText: {
     color: '#fff',
@@ -349,15 +365,14 @@ const styles = StyleSheet.create({
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
   },
   modalContent: {
     width: '100%',
-    backgroundColor: '#fff',
     borderRadius: 12,
+    borderWidth: 1,
     padding: 20,
   },
   modalTitle: {
@@ -367,19 +382,16 @@ const styles = StyleSheet.create({
   },
   modalBody: {
     fontSize: 14,
-    color: '#5a5a5a',
     marginBottom: 14,
     lineHeight: 20,
   },
   foundButton: {
-    backgroundColor: '#2f8f4e',
     padding: 10,
     borderRadius: 8,
     alignItems: 'center',
     marginBottom: 10,
   },
   notFoundButton: {
-    backgroundColor: '#8F3B1F',
     padding: 10,
     borderRadius: 8,
     alignItems: 'center',
@@ -390,7 +402,6 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   cancelButton: {
-    backgroundColor: '#999',
     padding: 10,
     borderRadius: 8,
     alignItems: 'center',

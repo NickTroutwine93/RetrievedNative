@@ -3,9 +3,11 @@ import { ActivityIndicator, Alert, Image, ScrollView, StyleSheet, TouchableOpaci
 import { useFocusEffect } from '@react-navigation/native';
 import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { MapTilerTileMap } from '../../components/maptiler-tile-map';
+import { MapTilerTileMap } from '@/components/maptiler-tile-map';
 import { ThemedText } from '../../components/themed-text';
 import { ThemedView } from '../../components/themed-view';
+import { Colors } from '../../constants/theme';
+import { useColorScheme } from '../../hooks/use-color-scheme';
 import { auth, db } from '../../src/services/firebaseClient';
 import { getActiveSearches, getUserData, joinSearch } from '../../src/services/userService';
 
@@ -31,6 +33,8 @@ function milesBetweenPoints(a: { latitude: number; longitude: number }, b: { lat
 }
 
 export default function MapScreen() {
+  const colorScheme = useColorScheme() ?? 'light';
+  const palette = Colors[colorScheme];
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [center, setCenter] = useState<{ latitude: number; longitude: number } | null>(null);
@@ -183,13 +187,13 @@ export default function MapScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <ThemedView style={styles.header}>
+    <SafeAreaView style={[styles.container, { backgroundColor: palette.background }]}>
+      <ThemedView style={[styles.header, { borderBottomColor: palette.border, backgroundColor: palette.surface }]}>
         <ThemedText type="title" style={styles.headerTitle}>Searches in Area</ThemedText>
       </ThemedView>
 
       <ScrollView style={styles.mapContainer} contentContainerStyle={styles.mapContent}>
-        {loading && <ActivityIndicator size="large" color="#0076C0" />}
+        {loading && <ActivityIndicator size="large" color={palette.primary} />}
 
         {!loading && !MAPTILER_KEY && (
           <View style={styles.placeholderBox}>
@@ -287,7 +291,7 @@ export default function MapScreen() {
                   </View>
 
                   <TouchableOpacity
-                    style={styles.joinSearchButton}
+                    style={[styles.joinSearchButton, styles.minTouchTarget, { backgroundColor: palette.primary }]}
                     onPress={() => {
                       if (isJoined) {
                         router.push({ pathname: '/search/[id]', params: { id: search.id } } as any);
@@ -296,7 +300,10 @@ export default function MapScreen() {
 
                       void handleJoinSearch(search.id);
                     }}
-                    disabled={!isJoined && joiningSearchId === search.id}>
+                    disabled={!isJoined && joiningSearchId === search.id}
+                    accessibilityRole="button"
+                    accessibilityLabel={isJoined ? 'Open search details' : 'Join search'}
+                    accessibilityHint={isJoined ? 'Opens this search details screen' : 'Joins this search and opens details'}>
                     <ThemedText style={styles.joinSearchButtonText}>
                       {isJoined ? 'Search Details' : joiningSearchId === search.id ? 'Joining...' : 'Join Search'}
                     </ThemedText>
@@ -473,12 +480,15 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   joinSearchButton: {
-    backgroundColor: '#1F4F8F',
     paddingVertical: 10,
     paddingHorizontal: 18,
     borderRadius: 8,
     alignSelf: 'center',
     marginTop: 12,
+  },
+  minTouchTarget: {
+    minHeight: 44,
+    justifyContent: 'center',
   },
   joinSearchButtonText: {
     color: '#fff',

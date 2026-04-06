@@ -889,8 +889,9 @@ export async function submitSearchSighting(db, { searchId, reporterId, reporterN
       : [];
     const { activeIds: searchers } = normalizeSearcherEntries(rawSearchers);
 
-    if (reporterId === ownerId || !searchers.includes(reporterId)) {
-      throw new Error('Only joined searchers can add sightings.');
+    const canSubmitSighting = reporterId === ownerId || searchers.includes(reporterId);
+    if (!canSubmitSighting) {
+      throw new Error('Only the pet owner or joined searchers can add sightings.');
     }
 
     const sightingRecord = {

@@ -5,11 +5,20 @@ import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
+import { useThemeColor } from '@/hooks/use-theme-color';
 import { auth, db } from '@/src/services/firebaseClient';
 import { getUserData } from '@/src/services/userService';
 
 export function AppHeader() {
   const insets = useSafeAreaInsets();
+  const headerBackground = useThemeColor({}, 'primary');
+  const avatarBackground = useThemeColor({}, 'primaryStrong');
+  const dropdownBackground = useThemeColor({}, 'surface');
+  const dropdownBorder = useThemeColor({}, 'border');
+  const dropdownNameColor = useThemeColor({}, 'text');
+  const dropdownSecondaryTextColor = useThemeColor({}, 'textSecondary');
+  const dangerColor = useThemeColor({}, 'danger');
+  const overlayColor = useThemeColor({}, 'overlay');
   const [dropdownVisible, setDropdownVisible] = useState(false);
   const [userName, setUserName] = useState('User');
   const [userEmail, setUserEmail] = useState('');
@@ -52,10 +61,10 @@ export function AppHeader() {
 
   return (
     <>
-      <View style={[styles.appHeader, { paddingTop: Math.max(insets.top, 8) }]}>
+      <View style={[styles.appHeader, { backgroundColor: headerBackground, paddingTop: Math.max(insets.top, 8) }]}>
         <ThemedText style={styles.logoText}>Retrieved</ThemedText>
         <TouchableOpacity
-          style={styles.avatarCircle}
+          style={[styles.avatarCircle, { backgroundColor: avatarBackground }]}
           onPress={() => setDropdownVisible((v) => !v)}
           activeOpacity={0.8}>
           <ThemedText style={styles.avatarText}>{avatarInitial}</ThemedText>
@@ -67,13 +76,13 @@ export function AppHeader() {
         visible={dropdownVisible}
         animationType="fade"
         onRequestClose={() => setDropdownVisible(false)}>
-        <Pressable style={styles.dropdownBackdrop} onPress={() => setDropdownVisible(false)}>
-          <View style={styles.dropdownPanel}>
+        <Pressable style={[styles.dropdownBackdrop, { backgroundColor: overlayColor }]} onPress={() => setDropdownVisible(false)}>
+          <View style={[styles.dropdownPanel, { backgroundColor: dropdownBackground, borderColor: dropdownBorder }]}>
             <Pressable>
-              <ThemedText style={styles.dropdownName} numberOfLines={1}>{userName}</ThemedText>
-              <ThemedText style={styles.dropdownEmail} numberOfLines={1}>{userEmail}</ThemedText>
-              <View style={styles.dropdownDivider} />
-              <TouchableOpacity style={styles.dropdownLogoutBtn} onPress={handleLogout}>
+              <ThemedText style={[styles.dropdownName, { color: dropdownNameColor }]} numberOfLines={1}>{userName}</ThemedText>
+              <ThemedText style={[styles.dropdownEmail, { color: dropdownSecondaryTextColor }]} numberOfLines={1}>{userEmail}</ThemedText>
+              <View style={[styles.dropdownDivider, { backgroundColor: dropdownBorder }]} />
+              <TouchableOpacity style={[styles.dropdownLogoutBtn, { backgroundColor: dangerColor }]} onPress={handleLogout}>
                 <ThemedText style={styles.dropdownLogoutText}>Log Out</ThemedText>
               </TouchableOpacity>
             </Pressable>
@@ -86,7 +95,6 @@ export function AppHeader() {
 
 const styles = StyleSheet.create({
   appHeader: {
-    backgroundColor: '#0076C0',
     paddingHorizontal: 16,
     paddingBottom: 10,
     flexDirection: 'row',
@@ -99,10 +107,9 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   avatarCircle: {
-    width: 38,
-    height: 38,
-    backgroundColor: '#003E7A',
-    borderRadius: 19,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -112,17 +119,14 @@ const styles = StyleSheet.create({
   },
   dropdownBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.15)',
   },
   dropdownPanel: {
     position: 'absolute',
     top: 62,
     right: 14,
     minWidth: 210,
-    backgroundColor: '#FFF8ED',
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#D2BFA3',
     paddingVertical: 12,
     paddingHorizontal: 14,
     shadowColor: '#000',
@@ -134,21 +138,17 @@ const styles = StyleSheet.create({
   dropdownName: {
     fontSize: 15,
     fontWeight: '700',
-    color: '#3E2010',
     marginBottom: 2,
   },
   dropdownEmail: {
     fontSize: 12,
-    color: '#7B6A58',
     marginBottom: 10,
   },
   dropdownDivider: {
     height: 1,
-    backgroundColor: '#D2BFA3',
     marginBottom: 10,
   },
   dropdownLogoutBtn: {
-    backgroundColor: '#9B1C1C',
     borderRadius: 8,
     paddingVertical: 9,
     alignItems: 'center',
