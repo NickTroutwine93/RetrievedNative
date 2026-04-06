@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Image, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, Image, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -10,7 +10,7 @@ import { ThemedView } from '../../components/themed-view';
 import { Colors } from '../../constants/theme';
 import { useColorScheme } from '../../hooks/use-color-scheme';
 import { auth, db } from '../../src/services/firebaseClient';
-import { getSearchById, getUserData, leaveSearch, getSearchMessages, markSearchThreadRead } from '../../src/services/userService';
+import { endSearch, getSearchById, getUserData, leaveSearch, markSearchThreadRead, sendSearchMessage, subscribeToSearchMessages } from '../../src/services/userService';
 
 const MAPTILER_KEY = process.env.EXPO_PUBLIC_MAPTILER_API_KEY;
 const petImageSources: Record<string, any> = {
@@ -74,10 +74,16 @@ export default function SearchDetailScreen() {
   const [error, setError] = useState('');
   const [relativeTimeTick, setRelativeTimeTick] = useState(Date.now());
   const [currentUserId, setCurrentUserId] = useState('');
+  const [account, setAccount] = useState<any>(null);
   const [leavingSearch, setLeavingSearch] = useState(false);
+  const [endingSearch, setEndingSearch] = useState(false);
   const [messages, setMessages] = useState<any[]>([]);
-  const [messagesExpanded, setMessagesExpanded] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [sending, setSending] = useState(false);
+  const [messagesExpanded, setMessagesExpanded] = useState(true);
+  const scrollViewRef = useRef<ScrollView | null>(null);
   const [sightingsExpanded, setSightingsExpanded] = useState(true);
+  const [lastSeenSightingAtMs, setLastSeenSightingAtMs] = useState(0);
   const [searchersExpanded, setSearchersExpanded] = useState(true);
 
   useEffect(() => {
@@ -104,10 +110,9 @@ export default function SearchDetailScreen() {
         return;
       }
 
-      const [searchData, account, messagesData] = await Promise.all([
+      const [searchData, accountData] = await Promise.all([
         getSearchById(db, id),
         getUserData(db, signedInEmail),
-        getSearchMessages(db, id),
       ]);
       if (!searchData) {
         setError('Search not found.');
@@ -115,9 +120,9 @@ export default function SearchDetailScreen() {
         return;
       }
 
-      setCurrentUserId(account?.id || '');
+      setCurrentUserId(accountData?.id || '');
+      setAccount(accountData);
       setSearch(searchData);
-      setMessages(messagesData || []);
     } catch (err: any) {
       setError(err?.message || 'Unable to load search details.');
     } finally {
@@ -135,6 +140,25 @@ export default function SearchDetailScreen() {
     }, [loadSearch])
   );
 
+  useEffect(() => {
+    if (!id || !search) {
+      return;
+    }
+
+    const unsubscribe = subscribeToSearchMessages(
+      db,
+      id,
+      (nextMessages: any[]) => {
+        setMessages(nextMessages);
+      },
+      (subscribeError: any) => {
+        // Non-fatal: keep UI usable if real-time sync fails.
+      }
+    );
+
+    return unsubscribe;
+  }, [id, search]);
+
   const center = search?.Location ?? search?.location;
   const radiusValue = Number(search?.Radius ?? search?.radius);
   const hasValidRadius = Number.isFinite(radiusValue) && radiusValue > 0;
@@ -146,8 +170,17 @@ export default function SearchDetailScreen() {
     ? search.Searchers
     : [];
   const ownerId = search?.owner ?? search?.OwnerID;
+  const canEndSearch = Boolean(currentUserId && ownerId && currentUserId === ownerId);
   const canAddSighting = Boolean(currentUserId && ownerId && (currentUserId === ownerId || searcherIds.includes(currentUserId)));
   const canLeaveSearch = Boolean(currentUserId && ownerId && currentUserId !== ownerId && searcherIds.includes(currentUserId));
+  const canMessage = Boolean(currentUserId && ownerId && (currentUserId === ownerId || searcherIds.includes(currentUserId)));
+  const senderName = useMemo(() => {
+    if (!account) {
+      return 'Search volunteer';
+    }
+
+    return [account.FirstName, account.LastName].filter(Boolean).join(' ').trim() || account.Email || 'Search volunteer';
+  }, [account]);
   const sightingsWithIndex = Array.isArray(search?.sightings)
     ? (() => {
         const chronological = [...search.sightings].sort(
@@ -180,6 +213,11 @@ export default function SearchDetailScreen() {
   const messageReadAt = search?.MessageReadAt || {};
   const currentUserReadAtMs = toMillis(messageReadAt[currentUserId]);
   const latestMessageAtMs = toMillis(latestMessage?.createdAt);
+  const latestSightingAtMs = sightingsWithIndex.reduce(
+    (latest: number, sighting: any) => Math.max(latest, toMillis(sighting?.createdAt ?? sighting?.createdAtMs)),
+    0
+  );
+  const hasUnreadSightings = Boolean(!sightingsExpanded && latestSightingAtMs > lastSeenSightingAtMs);
   const hasUnreadMessages = Boolean(
     !messagesExpanded &&
       latestMessage &&
@@ -188,6 +226,16 @@ export default function SearchDetailScreen() {
       currentUserId &&
       latestMessageSenderId !== currentUserId
   );
+  const statusValue = Number(search?.status ?? search?.Status);
+  const successfulValue = Number(search?.Successful ?? search?.Successfull);
+  const isSearchEnded = statusValue === 0;
+  const searchStatusLabel = isSearchEnded
+    ? successfulValue === 1
+      ? 'Ended: Pet Found'
+      : successfulValue === 0
+      ? 'Ended: Not Found'
+      : 'Ended'
+    : 'Active';
 
   const formatTimeSinceSearch = (searchDate: any) => {
     if (!searchDate) {
@@ -275,6 +323,76 @@ export default function SearchDetailScreen() {
     }
   };
 
+  const runEndSearch = async (wasSuccessful: boolean) => {
+    if (!id || endingSearch) {
+      return;
+    }
+
+    try {
+      setEndingSearch(true);
+      await endSearch(db, id, wasSuccessful);
+      router.replace('/(tabs)/map' as any);
+    } catch (endError: any) {
+      Alert.alert('End search failed', endError?.message || 'Unable to end this search right now.');
+    } finally {
+      setEndingSearch(false);
+    }
+  };
+
+  const handleEndSearch = () => {
+    Alert.alert(
+      'End Search',
+      'How should this search be marked?',
+      [
+        {
+          text: 'Pet Found',
+          onPress: () => {
+            Alert.alert('Confirm End Search', 'Mark this search as successful and end it?', [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'End Search', style: 'destructive', onPress: () => void runEndSearch(true) },
+            ]);
+          },
+        },
+        {
+          text: 'Not Found',
+          onPress: () => {
+            Alert.alert('Confirm End Search', 'Mark this search as not successful and end it?', [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'End Search', style: 'destructive', onPress: () => void runEndSearch(false) },
+            ]);
+          },
+        },
+        { text: 'Cancel', style: 'cancel' },
+      ]
+    );
+  };
+
+  const handleSend = async () => {
+    if (!id || !account?.id || sending) {
+      return;
+    }
+
+    const nextMessage = draft.trim();
+    if (!nextMessage) {
+      return;
+    }
+
+    try {
+      setSending(true);
+      await sendSearchMessage(db, {
+        searchId: id,
+        senderId: account.id,
+        senderName,
+        text: nextMessage,
+      });
+      setDraft('');
+    } catch (err: any) {
+      Alert.alert('Message failed', err?.message || 'Could not send your message.');
+    } finally {
+      setSending(false);
+    }
+  };
+
   const handleToggleMessages = async () => {
     const nextExpanded = !messagesExpanded;
     setMessagesExpanded(nextExpanded);
@@ -303,8 +421,53 @@ export default function SearchDetailScreen() {
     }
   };
 
+  const handleToggleSightings = () => {
+    const nextExpanded = !sightingsExpanded;
+    setSightingsExpanded(nextExpanded);
+
+    if (nextExpanded && latestSightingAtMs > 0) {
+      setLastSeenSightingAtMs((prev) => Math.max(prev, latestSightingAtMs));
+    }
+  };
+
+  useEffect(() => {
+    if (!sightingsExpanded || latestSightingAtMs <= 0) {
+      return;
+    }
+
+    setLastSeenSightingAtMs((prev) => Math.max(prev, latestSightingAtMs));
+  }, [sightingsExpanded, latestSightingAtMs]);
+
+  useEffect(() => {
+    if (!messagesExpanded || !id || !currentUserId || messages.length === 0) {
+      return;
+    }
+
+    const latest = messages[messages.length - 1];
+    const senderId = latest?.senderId ?? latest?.SenderID ?? '';
+    if (!senderId || senderId === currentUserId) {
+      return;
+    }
+
+    void markSearchThreadRead(db, id, currentUserId);
+    setSearch((prev: any) => {
+      if (!prev) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        MessageReadAt: {
+          ...(prev.MessageReadAt || {}),
+          [currentUserId]: new Date(),
+        },
+      };
+    });
+  }, [messagesExpanded, messages, id, currentUserId]);
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: palette.background }]}>
+      <KeyboardAvoidingView style={styles.container} behavior={Platform.select({ ios: 'padding', default: undefined })}>
       <ThemedView style={[styles.header, { borderBottomColor: palette.border, backgroundColor: palette.surface }]}>
         <TouchableOpacity
           style={[styles.backButton, styles.minTouchTarget]}
@@ -316,6 +479,11 @@ export default function SearchDetailScreen() {
           <ThemedText style={styles.backButtonText}>Back</ThemedText>
         </TouchableOpacity>
         <ThemedText type="title" style={styles.headerTitle}>Search Details</ThemedText>
+        {search ? (
+          <View style={[styles.statusChip, isSearchEnded ? styles.statusChipEnded : styles.statusChipActive]}>
+            <ThemedText style={styles.statusChipText}>{searchStatusLabel}</ThemedText>
+          </View>
+        ) : null}
       </ThemedView>
 
       <ScrollView style={styles.scrollContainer} contentContainerStyle={styles.scrollContent}>
@@ -382,6 +550,17 @@ export default function SearchDetailScreen() {
                   <ThemedText style={styles.leaveSearchButtonText}>{leavingSearch ? 'Leaving...' : 'Leave Search'}</ThemedText>
                 </TouchableOpacity>
               ) : null}
+              {canEndSearch ? (
+                <TouchableOpacity
+                  style={[styles.endSearchButton, styles.minTouchTarget, { backgroundColor: palette.danger }]}
+                  onPress={handleEndSearch}
+                  disabled={endingSearch}
+                  accessibilityRole="button"
+                  accessibilityLabel="End search"
+                  accessibilityHint="Ends this search and marks whether it was successful">
+                  <ThemedText style={styles.endSearchButtonText}>{endingSearch ? 'Ending...' : 'End Search'}</ThemedText>
+                </TouchableOpacity>
+              ) : null}
               {showMap ? (
                 <View style={styles.mapWidget}>
                   <MapTilerTileMap
@@ -414,10 +593,10 @@ export default function SearchDetailScreen() {
               <View style={styles.sightingsContainer}>
                 <TouchableOpacity
                   style={[styles.sightingsHeaderButton, sightingsExpanded && styles.sightingsHeaderButtonExpanded]}
-                  onPress={() => setSightingsExpanded((prev) => !prev)}
+                  onPress={handleToggleSightings}
                   activeOpacity={0.7}
                   accessibilityRole="button"
-                  accessibilityLabel={`Sightings section, ${sightingsWithIndex.length} items`}
+                  accessibilityLabel={`Sightings section, ${sightingsWithIndex.length} items${hasUnreadSightings ? ', unread sightings' : ''}`}
                   accessibilityState={{ expanded: sightingsExpanded }}>
                   <View style={styles.sightingsHeaderContent}>
                     <View style={styles.sightingsHeaderTextWrap}>
@@ -431,6 +610,7 @@ export default function SearchDetailScreen() {
                         color={palette.primary}
                         style={sightingsExpanded ? styles.sightingsChevronIconExpanded : undefined}
                       />
+                      {hasUnreadSightings ? <View style={styles.sightingsUnreadBadge} /> : null}
                     </View>
                   </View>
                 </TouchableOpacity>
@@ -514,6 +694,28 @@ export default function SearchDetailScreen() {
                       );
                     })
                   )}
+                  {canMessage ? (
+                    <View style={styles.composerRow}>
+                      <TextInput
+                        value={draft}
+                        onChangeText={setDraft}
+                        placeholder="Send a message to the team…"
+                        placeholderTextColor={palette.textMuted}
+                        multiline
+                        style={[styles.composerInput, { color: palette.text }]}
+                        editable={!sending}
+                        accessibilityLabel="Message input"
+                      />
+                      <TouchableOpacity
+                        style={[styles.composerSendButton, styles.minTouchTarget, { backgroundColor: palette.primary }, sending && styles.composerSendButtonDisabled]}
+                        onPress={handleSend}
+                        disabled={sending}
+                        accessibilityRole="button"
+                        accessibilityLabel="Send message">
+                        <ThemedText style={styles.composerSendButtonText}>{sending ? '…' : 'Send'}</ThemedText>
+                      </TouchableOpacity>
+                    </View>
+                  ) : null}
                 </View>
               ) : null}
             </View>
@@ -557,6 +759,7 @@ export default function SearchDetailScreen() {
           </>
         ) : null}
       </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -596,6 +799,26 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 28,
     fontWeight: 'bold',
+  },
+  statusChip: {
+    alignSelf: 'flex-start',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderWidth: 1,
+  },
+  statusChipActive: {
+    backgroundColor: '#e8f6ec',
+    borderColor: '#95d5a9',
+  },
+  statusChipEnded: {
+    backgroundColor: '#fbe9e9',
+    borderColor: '#e0a7a7',
+  },
+  statusChipText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#2c3e50',
   },
   scrollContainer: {
     flex: 1,
@@ -671,6 +894,17 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   leaveSearchButtonText: {
+    color: '#ffffff',
+    fontWeight: '700',
+  },
+  endSearchButton: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#7b2d20',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  endSearchButtonText: {
     color: '#ffffff',
     fontWeight: '700',
   },
@@ -877,6 +1111,17 @@ const styles = StyleSheet.create({
   sightingsChevronIconExpanded: {
     transform: [{ rotate: '-90deg' }],
   },
+  sightingsUnreadBadge: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#d64545',
+    borderWidth: 1,
+    borderColor: '#ffffff',
+  },
   sightingsSection: {
     gap: 8,
     padding: 12,
@@ -1026,5 +1271,41 @@ const styles = StyleSheet.create({
   },
   messageTextOwn: {
     textAlign: 'right',
+  },
+  composerRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 8,
+    marginTop: 8,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#c8d8e8',
+  },
+  composerInput: {
+    flex: 1,
+    minHeight: 40,
+    maxHeight: 100,
+    borderWidth: 1,
+    borderColor: '#abc0ce',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: '#f8fbfd',
+    textAlignVertical: 'top',
+    fontSize: 14,
+  },
+  composerSendButton: {
+    backgroundColor: '#1f4f8f',
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  composerSendButtonDisabled: {
+    opacity: 0.6,
+  },
+  composerSendButtonText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 14,
   },
 });
