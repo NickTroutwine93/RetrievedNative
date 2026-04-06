@@ -115,7 +115,7 @@ export default function SearchMessagesScreen() {
         return;
       }
 
-      const searchData = await getSearchById(db, id);
+      const searchData = await getSearchById(db, id, user.id);
       if (!searchData) {
         setError('This search no longer exists.');
         setSearch(null);

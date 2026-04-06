@@ -1,0 +1,169 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAccountOwner(accountId) {
+      return isSignedIn()
+        && accountId is string
+        && exists(/databases/$(database)/documents/accounts/$(accountId))
+        && get(/databases/$(database)/documents/accounts/$(accountId)).data.Email == request.auth.token.email;
+    }
+
+    function isSearchLocationObfuscated(searchData) {
+      return (searchData.LocationIsObfuscated == true) || (searchData.locationIsObfuscated == true);
+    }
+
+    function hasSearchLocationObfuscationFlag(searchData) {
+      return searchData.keys().hasAny(['LocationIsObfuscated', 'locationIsObfuscated']);
+    }
+
+    // During migration, legacy docs may not have obfuscation flags yet.
+    function isSearchLocationPolicySatisfied(searchData) {
+      return isSearchLocationObfuscated(searchData)
+        || !hasSearchLocationObfuscationFlag(searchData);
+    }
+
+    function activeSearcherEntry(accountId) {
+      // Matches app format: JSON string stored in Searchers array
+      return "{\"SearchersID\":\"" + accountId + "\",\"Status\":1}";
+    }
+
+    function isSearchActive(searchData) {
+      return (searchData.Status == 1) || (searchData.status == 1);
+    }
+
+    function searchHasActiveSearcher(searchData, accountId) {
+      return searchData.Searchers is list
+        && (
+          // Legacy plain string support
+          searchData.Searchers.hasAny([accountId]) ||
+          // Current JSON-string entry support
+          searchData.Searchers.hasAny([activeSearcherEntry(accountId)])
+        );
+    }
+
+    match /accounts/{accountId} {
+      allow read: if isSignedIn();
+
+      allow create: if isSignedIn()
+        && request.resource.data.Email == request.auth.token.email;
+
+      allow update: if isSignedIn()
+        && resource.data.Email == request.auth.token.email
+        && request.resource.data.Email == resource.data.Email;
+
+      allow delete: if false;
+    }
+
+    match /pets/{petId} {
+      allow read: if isSignedIn();
+
+      allow create: if isSignedIn()
+        && request.resource.data.OwnerID is string
+        && isAccountOwner(request.resource.data.OwnerID);
+
+      allow update: if isSignedIn()
+        && resource.data.OwnerID is string
+        && request.resource.data.OwnerID == resource.data.OwnerID
+        && isAccountOwner(resource.data.OwnerID);
+
+      allow delete: if false;
+    }
+
+    match /searches/{searchId} {
+      allow read: if isSignedIn();
+
+      // createSearch
+      allow create: if isSignedIn()
+        && request.resource.data.OwnerID is string
+        && request.resource.data.PetID is string
+        && isAccountOwner(request.resource.data.OwnerID)
+        && exists(/databases/$(database)/documents/pets/$(request.resource.data.PetID))
+        && get(/databases/$(database)/documents/pets/$(request.resource.data.PetID)).data.OwnerID == request.resource.data.OwnerID
+        && isSearchLocationObfuscated(request.resource.data);
+
+      // owner updates + participant updates (join/leave/sightings/read metadata)
+      allow update: if isSignedIn()
+        && request.resource.data.OwnerID == resource.data.OwnerID
+        && request.resource.data.PetID == resource.data.PetID
+        && isSearchLocationPolicySatisfied(request.resource.data)
+        && (
+          isAccountOwner(resource.data.OwnerID)
+          || (
+            isSearchActive(resource.data)
+            && request.resource.data.Status == resource.data.Status
+            && request.resource.data.status == resource.data.status
+            && request.resource.data.Successful == resource.data.Successful
+            && request.resource.data.Successfull == resource.data.Successfull
+            && request.resource.data.OwnerID == resource.data.OwnerID
+            && request.resource.data.PetID == resource.data.PetID
+            && request.resource.data.Location == resource.data.Location
+            && request.resource.data.Date == resource.data.Date
+            && request.resource.data.Radius == resource.data.Radius
+            && request.resource.data.LocationIsObfuscated == resource.data.LocationIsObfuscated
+            && request.resource.data.locationIsObfuscated == resource.data.locationIsObfuscated
+          )
+        );
+
+      allow delete: if false;
+    }
+
+    // Exact origin coordinates, owner-only.
+    match /searchOrigins/{searchId} {
+      // Allow owner reads even when origin doc does not exist yet.
+      allow read: if isSignedIn()
+        && exists(/databases/$(database)/documents/searches/$(searchId))
+        && isAccountOwner(get(/databases/$(database)/documents/searches/$(searchId)).data.OwnerID);
+
+      allow create: if isSignedIn()
+        && exists(/databases/$(database)/documents/searches/$(searchId))
+        && isAccountOwner(get(/databases/$(database)/documents/searches/$(searchId)).data.OwnerID)
+        && request.resource.data.OwnerID is string
+        && isAccountOwner(request.resource.data.OwnerID)
+        && request.resource.data.SearchID == searchId
+        && request.resource.data.OwnerID == get(/databases/$(database)/documents/searches/$(searchId)).data.OwnerID;
+
+      allow update: if isSignedIn()
+        && exists(/databases/$(database)/documents/searches/$(searchId))
+        && isAccountOwner(get(/databases/$(database)/documents/searches/$(searchId)).data.OwnerID)
+        && resource.data.OwnerID is string
+        && request.resource.data.OwnerID == resource.data.OwnerID
+        && isAccountOwner(resource.data.OwnerID)
+        && request.resource.data.SearchID == resource.data.SearchID
+        && request.resource.data.OwnerID == get(/databases/$(database)/documents/searches/$(searchId)).data.OwnerID;
+
+      allow delete: if false;
+    }
+
+    match /searchMessages/{messageId} {
+      allow read: if isSignedIn();
+
+      // sendSearchMessage
+      allow create: if isSignedIn()
+        && request.resource.data.SearchID is string
+        && request.resource.data.SenderID is string
+        && request.resource.data.Text is string
+        && request.resource.data.Text.size() > 0
+        && exists(/databases/$(database)/documents/searches/$(request.resource.data.SearchID))
+        && isAccountOwner(request.resource.data.SenderID)
+        && isSearchActive(get(/databases/$(database)/documents/searches/$(request.resource.data.SearchID)).data)
+        && (
+          request.resource.data.SenderID == get(/databases/$(database)/documents/searches/$(request.resource.data.SearchID)).data.OwnerID
+          || searchHasActiveSearcher(
+            get(/databases/$(database)/documents/searches/$(request.resource.data.SearchID)).data,
+            request.resource.data.SenderID
+          )
+        );
+
+      allow update, delete: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

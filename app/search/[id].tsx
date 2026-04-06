@@ -157,10 +157,8 @@ export default function SearchDetailScreen() {
         return;
       }
 
-      const [searchData, accountData] = await Promise.all([
-        getSearchById(db, id),
-        getUserData(db, signedInEmail),
-      ]);
+      const accountData = await getUserData(db, signedInEmail);
+      const searchData = await getSearchById(db, id, accountData?.id || '');
       if (!searchData) {
         setError('Search not found.');
         setSearch(null);
@@ -219,6 +217,8 @@ export default function SearchDetailScreen() {
   const isOwner = Boolean(currentUserId && ownerId && currentUserId === ownerId);
   const displayCenter = center
     ? isOwner
+      ? center
+      : search?.locationIsObfuscated
       ? center
       : getObfuscatedCoordinate(center, String(search?.id || id || ownerId || 'search'))
     : null;

@@ -171,7 +171,7 @@ export default function MapScreen() {
       const safeRadius = Number.isFinite(parsedRadius) && parsedRadius > 0 ? parsedRadius : DEFAULT_RADIUS_MILES;
       setRadiusMiles(safeRadius);
 
-      const activeSearches = await getActiveSearches(db);
+      const activeSearches = await getActiveSearches(db, account?.id || '');
       const nearbySearches = activeSearches
         .map((search) => {
           const searchLocation = search?.Location ?? search?.location;
@@ -231,7 +231,9 @@ export default function MapScreen() {
         })
         .map((search, index) => {
           const location = search?.Location ?? search?.location;
-          const obscured = getObfuscatedCoordinate(location, String(search?.id || search?.OwnerID || index));
+          const obscured = search?.locationIsObfuscated
+            ? location
+            : getObfuscatedCoordinate(location, String(search?.id || search?.OwnerID || index));
 
           return {
             id: search.id || `search-${index}`,

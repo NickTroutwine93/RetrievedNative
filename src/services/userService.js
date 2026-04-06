@@ -10,6 +10,7 @@ import {
   GeoPoint,
   Timestamp,
   arrayUnion,
+  setDoc,
   onSnapshot,
   serverTimestamp,
 } from 'firebase/firestore';
@@ -119,10 +120,130 @@ function stringifySearcherEntry(entry) {
   });
 }
 
-async function hydrateSearchRecord(db, searchDoc) {
+function hashString(value) {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = (hash * 31 + value.charCodeAt(i)) >>> 0;
+  }
+  return hash;
+}
+
+function offsetCoordinate(coordinate, distanceMiles, bearingDegrees) {
+  const earthRadiusMiles = 3958.7613;
+  const angularDistance = distanceMiles / earthRadiusMiles;
+  const bearing = (bearingDegrees * Math.PI) / 180;
+  const lat1 = (coordinate.latitude * Math.PI) / 180;
+  const lon1 = (coordinate.longitude * Math.PI) / 180;
+
+  const sinLat1 = Math.sin(lat1);
+  const cosLat1 = Math.cos(lat1);
+  const sinAd = Math.sin(angularDistance);
+  const cosAd = Math.cos(angularDistance);
+
+  const lat2 = Math.asin(sinLat1 * cosAd + cosLat1 * sinAd * Math.cos(bearing));
+  const lon2 = lon1 + Math.atan2(Math.sin(bearing) * sinAd * cosLat1, cosAd - sinLat1 * Math.sin(lat2));
+
+  return {
+    latitude: (lat2 * 180) / Math.PI,
+    longitude: ((lon2 * 180) / Math.PI + 540) % 360 - 180,
+  };
+}
+
+function getObfuscatedCoordinate(coordinate, seed, minOffsetMiles = 0.35, maxOffsetMiles = 0.65) {
+  const hash = hashString(seed || 'search-location');
+  const bearing = hash % 360;
+  const normalized = ((hash >> 8) % 1000) / 999;
+  const distance = minOffsetMiles + (maxOffsetMiles - minOffsetMiles) * normalized;
+  return offsetCoordinate(coordinate, distance, bearing);
+}
+
+function getRawLocation(data) {
+  const location = data?.Location ?? data?.location;
+  if (!location || !Number.isFinite(location.latitude) || !Number.isFinite(location.longitude)) {
+    return null;
+  }
+
+  return {
+    latitude: location.latitude,
+    longitude: location.longitude,
+  };
+}
+
+async function getOwnerExactLocation(db, searchId, ownerId, viewerUserId) {
+  if (!searchId || !ownerId || !viewerUserId || ownerId !== viewerUserId) {
+    return null;
+  }
+
+  const originDoc = await getDoc(doc(db, 'searchOrigins', searchId));
+  if (!originDoc.exists()) {
+    return null;
+  }
+
+  const originData = originDoc.data() || {};
+  const originOwnerId = originData.OwnerID ?? originData.owner;
+  const originLocation = originData.Location ?? originData.location;
+  if (originOwnerId !== ownerId) {
+    return null;
+  }
+
+  if (!originLocation || !Number.isFinite(originLocation.latitude) || !Number.isFinite(originLocation.longitude)) {
+    return null;
+  }
+
+  return {
+    latitude: originLocation.latitude,
+    longitude: originLocation.longitude,
+  };
+}
+
+function getSafeLocationForViewer({ rawLocation, ownerId, viewerUserId, searchId, storedIsObfuscated, ownerExactLocation }) {
+  if (!rawLocation) {
+    return { safeLocation: null, locationIsObfuscated: false };
+  }
+
+  const isOwnerViewer = Boolean(viewerUserId && ownerId && viewerUserId === ownerId);
+  if (isOwnerViewer) {
+    if (ownerExactLocation) {
+      return {
+        safeLocation: ownerExactLocation,
+        locationIsObfuscated: false,
+      };
+    }
+
+    return {
+      safeLocation: rawLocation,
+      locationIsObfuscated: Boolean(storedIsObfuscated),
+    };
+  }
+
+  if (storedIsObfuscated) {
+    return {
+      safeLocation: rawLocation,
+      locationIsObfuscated: true,
+    };
+  }
+
+  return {
+    safeLocation: getObfuscatedCoordinate(rawLocation, String(searchId || ownerId || 'search')),
+    locationIsObfuscated: true,
+  };
+}
+
+async function hydrateSearchRecord(db, searchDoc, viewerUserId = '') {
   const data = searchDoc.data();
   const petId = data.PetID ?? data.petID;
   const ownerId = data.OwnerID ?? data.owner;
+  const storedIsObfuscated = Boolean(data.LocationIsObfuscated ?? data.locationIsObfuscated);
+  const rawLocation = getRawLocation(data);
+  const ownerExactLocation = await getOwnerExactLocation(db, searchDoc.id, ownerId, viewerUserId);
+  const { safeLocation, locationIsObfuscated } = getSafeLocationForViewer({
+    rawLocation,
+    ownerId,
+    viewerUserId,
+    searchId: searchDoc.id,
+    storedIsObfuscated,
+    ownerExactLocation,
+  });
   const petDoc = petId ? await getDoc(doc(db, 'pets', petId)) : null;
   const ownerDoc = ownerId ? await getDoc(doc(db, 'accounts', ownerId)) : null;
   const rawSearchers = Array.isArray(data.Searchers)
@@ -161,6 +282,9 @@ async function hydrateSearchRecord(db, searchDoc) {
   return {
     id: searchDoc.id,
     ...data,
+    Location: safeLocation,
+    location: safeLocation,
+    locationIsObfuscated,
     date: data.Date ?? data.date,
     status: data.Status ?? data.status,
     owner: ownerId,
@@ -339,7 +463,7 @@ export async function getUserSearches(db, email) {
       return status === 1;
     });
 
-    const searchDocs = await Promise.all(activeSearchDocs.map((searchDoc) => hydrateSearchRecord(db, searchDoc)));
+    const searchDocs = await Promise.all(activeSearchDocs.map((searchDoc) => hydrateSearchRecord(db, searchDoc, userId)));
 
     return searchDocs;
   } catch (error) {
@@ -348,7 +472,7 @@ export async function getUserSearches(db, email) {
   }
 }
 
-export async function getActiveSearches(db) {
+export async function getActiveSearches(db, viewerUserId = '') {
   try {
     const searchSnapshot = await getDocs(collection(db, 'searches'));
     const activeSearchDocs = searchSnapshot.docs.filter((searchDoc) => {
@@ -357,7 +481,7 @@ export async function getActiveSearches(db) {
       return status === 1;
     });
 
-    const searchDocs = await Promise.all(activeSearchDocs.map((searchDoc) => hydrateSearchRecord(db, searchDoc)));
+    const searchDocs = await Promise.all(activeSearchDocs.map((searchDoc) => hydrateSearchRecord(db, searchDoc, viewerUserId)));
     return searchDocs;
   } catch (error) {
     console.error('Error fetching active searches:', error);
@@ -377,7 +501,7 @@ export async function getUserSearchHistory(db, email) {
 
     const userId = userSnapshot.docs[0].id;
     const searchSnapshot = await getDocs(collection(db, 'searches'));
-    const hydratedSearches = await Promise.all(searchSnapshot.docs.map((searchDoc) => hydrateSearchRecord(db, searchDoc)));
+    const hydratedSearches = await Promise.all(searchSnapshot.docs.map((searchDoc) => hydrateSearchRecord(db, searchDoc, userId)));
 
     const history = hydratedSearches.filter((search) => {
       const status = search?.status ?? search?.Status;
@@ -454,7 +578,7 @@ export async function getUserMessageThreads(db, email) {
       return [];
     }
 
-    const activeSearches = await getActiveSearches(db);
+    const activeSearches = await getActiveSearches(db, currentUser.id);
     const participantSearches = activeSearches.filter((search) => {
       const ownerId = search.owner ?? search.OwnerID;
       const searchers = Array.isArray(search.searchers)
@@ -530,7 +654,7 @@ export async function subscribeUserMessageThreads(db, email, onThreads, onError)
           });
 
           const hydratedSearches = await Promise.all(
-            activeSearchDocs.map((searchDoc) => hydrateSearchRecord(db, searchDoc))
+            activeSearchDocs.map((searchDoc) => hydrateSearchRecord(db, searchDoc, currentUser.id))
           );
 
           const participantSearches = hydratedSearches.filter((search) => {
@@ -720,12 +844,21 @@ export async function createSearch(db, searchData) {
       throw new Error('An active search already exists for this pet.');
     }
 
+    const searchRef = doc(collection(db, 'searches'));
+    const searchId = searchRef.id;
     const searchLocation = new GeoPoint(sourceLocation.latitude, sourceLocation.longitude);
+    const publicLocation = getObfuscatedCoordinate(
+      { latitude: sourceLocation.latitude, longitude: sourceLocation.longitude },
+      String(searchId || searchData.ownerId || searchData.petId || 'search')
+    );
+    const publicGeoPoint = new GeoPoint(publicLocation.latitude, publicLocation.longitude);
     const createdAt = new Date();
-    const searchDoc = await addDoc(collection(db, 'searches'), {
+
+    await setDoc(searchRef, {
       PetID: searchData.petId,
       OwnerID: searchData.ownerId,
-      Location: searchLocation,
+      Location: publicGeoPoint,
+      LocationIsObfuscated: true,
       Date: createdAt,
       Radius: Number(searchData.radius) || 5,
       Sightings: [],
@@ -735,15 +868,24 @@ export async function createSearch(db, searchData) {
       Tipped: [],
     });
 
+    await setDoc(doc(db, 'searchOrigins', searchId), {
+      SearchID: searchId,
+      OwnerID: searchData.ownerId,
+      Location: searchLocation,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+
     await updateDoc(doc(db, 'accounts', searchData.ownerId), {
-      YourSearches: arrayUnion(searchDoc.id),
+      YourSearches: arrayUnion(searchId),
     });
 
     return {
-      id: searchDoc.id,
+      id: searchId,
       PetID: searchData.petId,
       OwnerID: searchData.ownerId,
-      Location: searchLocation,
+      Location: publicGeoPoint,
+      locationIsObfuscated: true,
       Date: createdAt,
       Radius: Number(searchData.radius) || 5,
       Sightings: [],
@@ -858,14 +1000,14 @@ export async function leaveSearch(db, searchId, email) {
   }
 }
 
-export async function getSearchById(db, searchId) {
+export async function getSearchById(db, searchId, viewerUserId = '') {
   try {
     const searchDoc = await getDoc(doc(db, 'searches', searchId));
     if (!searchDoc.exists()) {
       return null;
     }
 
-    return hydrateSearchRecord(db, searchDoc);
+    return hydrateSearchRecord(db, searchDoc, viewerUserId);
   } catch (error) {
     console.error('Error fetching search by ID:', error);
     throw error;

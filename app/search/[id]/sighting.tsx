@@ -124,10 +124,8 @@ export default function AddSightingScreen() {
         return;
       }
 
-      const [nextSearch, nextAccount] = await Promise.all([
-        getSearchById(db, id),
-        getUserData(db, signedInEmail),
-      ]);
+      const nextAccount = await getUserData(db, signedInEmail);
+      const nextSearch = await getSearchById(db, id, nextAccount?.id || '');
 
       if (!nextSearch) {
         setError('Search not found.');
@@ -181,6 +179,10 @@ export default function AddSightingScreen() {
   const privacyCenter = useMemo(() => {
     if (!searchCenter) {
       return null;
+    }
+
+    if (search?.locationIsObfuscated) {
+      return searchCenter;
     }
 
     return getObfuscatedCoordinate(searchCenter, String(search?.id || id || search?.OwnerID || search?.owner || 'search'));

@@ -93,10 +93,10 @@ export default function SearchesScreen() {
         return;
       }
 
-      const [searchesData, account, activeSearches, historyData] = await Promise.all([
+      const account = await getUserData(db, signedInEmail);
+      const [searchesData, activeSearches, historyData] = await Promise.all([
         getUserSearches(db, signedInEmail),
-        getUserData(db, signedInEmail),
-        getActiveSearches(db),
+        getActiveSearches(db, account?.id || ''),
         getUserSearchHistory(db, signedInEmail),
       ]);
 

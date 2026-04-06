@@ -44,6 +44,38 @@ Required repository secrets for the build step:
 - `EXPO_PUBLIC_FB_MEASUREMENTID`
 - `EXPO_PUBLIC_MAPTILER_API_KEY` (recommended for map rendering)
 
+## Firestore Location Privacy Hardening
+
+This repo now supports a split model for search origins:
+
+- `searches/{id}.Location`: obfuscated coordinate only (safe for broad client reads)
+- `searchOrigins/{id}.Location`: exact coordinate (owner-only)
+
+Apply rules:
+
+1. Merge/deploy [firestore.location-privacy.rules](firestore.location-privacy.rules) into your active Firestore rules.
+2. Keep your existing collection-specific write protections, then include the `searchOrigins` owner-only match block.
+
+Migrate legacy documents that still have exact coordinates in `searches.Location`:
+
+1. Install admin SDK once:
+
+   ```bash
+   npm install firebase-admin
+   ```
+
+2. Run dry-run first:
+
+   ```bash
+   node scripts/migrate-search-origins-admin.js --project=<your-project-id> --dry-run
+   ```
+
+3. Run live migration:
+
+   ```bash
+   node scripts/migrate-search-origins-admin.js --project=<your-project-id>
+   ```
+
 Notes:
 
 - Expo Router project path is set via `expo.experiments.baseUrl` in `app.json`.
