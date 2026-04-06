@@ -46,6 +46,14 @@ service cloud.firestore {
         );
     }
 
+    function isJoinOrLeaveSearchUpdate() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['Searchers', 'lastUpdated']);
+    }
+
+    function isSightingUpdate() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['Sightings', 'lastUpdated']);
+    }
+
     match /accounts/{accountId} {
       allow read: if isSignedIn();
 
@@ -91,30 +99,37 @@ service cloud.firestore {
         && request.resource.data.OwnerID == resource.data.OwnerID
         && request.resource.data.PetID == resource.data.PetID
         && (
-          isSearchLocationPolicySatisfied(request.resource.data)
+          (isSearchActive(resource.data) && isJoinOrLeaveSearchUpdate())
+          || (isSearchActive(resource.data) && isSightingUpdate())
           || (
-            request.resource.data.Location == resource.data.Location
-            && request.resource.data.LocationIsObfuscated == resource.data.LocationIsObfuscated
-            && request.resource.data.locationIsObfuscated == resource.data.locationIsObfuscated
+            (
+              isSearchLocationPolicySatisfied(request.resource.data)
+              || (
+                request.resource.data.Location == resource.data.Location
+                && request.resource.data.LocationIsObfuscated == resource.data.LocationIsObfuscated
+                && request.resource.data.locationIsObfuscated == resource.data.locationIsObfuscated
+              )
+            )
+            && (
+              isAccountOwner(resource.data.OwnerID)
+              || (
+                isSearchActive(resource.data)
+                && request.resource.data.Status == resource.data.Status
+                && request.resource.data.status == resource.data.status
+                && request.resource.data.Successful == resource.data.Successful
+                && request.resource.data.Successfull == resource.data.Successfull
+                && request.resource.data.OwnerID == resource.data.OwnerID
+                && request.resource.data.PetID == resource.data.PetID
+                && request.resource.data.Location == resource.data.Location
+                && request.resource.data.Date == resource.data.Date
+                && request.resource.data.Radius == resource.data.Radius
+                && request.resource.data.LocationIsObfuscated == resource.data.LocationIsObfuscated
+                && request.resource.data.locationIsObfuscated == resource.data.locationIsObfuscated
+              )
+            )
           )
         )
-        && (
-          isAccountOwner(resource.data.OwnerID)
-          || (
-            isSearchActive(resource.data)
-            && request.resource.data.Status == resource.data.Status
-            && request.resource.data.status == resource.data.status
-            && request.resource.data.Successful == resource.data.Successful
-            && request.resource.data.Successfull == resource.data.Successfull
-            && request.resource.data.OwnerID == resource.data.OwnerID
-            && request.resource.data.PetID == resource.data.PetID
-            && request.resource.data.Location == resource.data.Location
-            && request.resource.data.Date == resource.data.Date
-            && request.resource.data.Radius == resource.data.Radius
-            && request.resource.data.LocationIsObfuscated == resource.data.LocationIsObfuscated
-            && request.resource.data.locationIsObfuscated == resource.data.locationIsObfuscated
-          )
-        );
+      ;
 
       allow delete: if false;
     }
