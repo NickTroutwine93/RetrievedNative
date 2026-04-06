@@ -238,7 +238,7 @@ export default function AddSightingScreen() {
         location: selectedLocation,
       });
 
-      router.replace({ pathname: '/search/[id]', params: { id } } as any);
+      router.back();
     } catch (submitError: any) {
       Alert.alert('Could not submit sighting', submitError?.message || 'Please try again.');
     } finally {
