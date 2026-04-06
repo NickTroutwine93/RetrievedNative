@@ -1,4 +1,6 @@
 View App on GH Pages: https://nicktroutwine93.github.io/RetrievedNative/
+<img width="231" height="238" alt="image" src="https://github.com/user-attachments/assets/a7d64dc5-7559-409f-a23d-d47e24ed8923" />
+
 
 # Welcome to your Expo app 👋
 
