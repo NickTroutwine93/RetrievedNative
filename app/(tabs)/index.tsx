@@ -17,6 +17,31 @@ const petImageSources: Record<string, any> = {
   'Taz.jpg': require('../../assets/pets/Taz.jpg'),
 };
 const MAPTILER_KEY = process.env.EXPO_PUBLIC_MAPTILER_API_KEY;
+const PET_SIZE_OPTIONS = ['XS', 'S', 'M', 'L', 'XL'];
+const PET_COLOR_OPTIONS = [
+  'Black',
+  'White',
+  'Brown',
+  'Tan',
+  'Cream',
+  'Fawn',
+  'Red',
+  'Golden',
+  'Gray',
+  'Silver',
+  'Blue',
+  'Liver',
+  'Chocolate',
+  'Brindle',
+  'Merle',
+  'Sable',
+  'Apricot',
+  'Rust',
+  'Bicolor',
+  'Tricolor',
+  'Parti-color',
+  'Mahogany',
+];
 
 export default function HomeScreen() {
   const [user, setUser] = useState<any>(null);
@@ -27,8 +52,10 @@ export default function HomeScreen() {
   const [isAddMode, setIsAddMode] = useState(false);
   const [editName, setEditName] = useState('');
   const [editBreed, setEditBreed] = useState('');
-  const [editColor, setEditColor] = useState('');
+  const [editColors, setEditColors] = useState<string[]>([]);
   const [editSize, setEditSize] = useState('');
+  const [showSizeDropdown, setShowSizeDropdown] = useState(false);
+  const [showColorDropdown, setShowColorDropdown] = useState(false);
   const [editImage, setEditImage] = useState('');
   const [editImageType, setEditImageType] = useState('');
   const [editImageUri, setEditImageUri] = useState('');
@@ -183,8 +210,16 @@ export default function HomeScreen() {
     setShowRemoveConfirm(false);
     setEditName(pet.Name ?? '');
     setEditBreed(pet.Breed ?? '');
-    setEditColor(Array.isArray(pet.Color) ? pet.Color.join(', ') : pet.Color ?? '');
+    const incomingColors = Array.isArray(pet.Color)
+      ? pet.Color
+      : String(pet.Color ?? '')
+          .split(',')
+          .map((value) => value.trim())
+          .filter((value) => value.length > 0);
+    setEditColors(incomingColors);
     setEditSize(pet.Size ?? '');
+    setShowSizeDropdown(false);
+    setShowColorDropdown(false);
     setEditImage(pet.Image ?? '');
     setEditImageType(pet.ImageType ?? '');
     setEditImageUri('');
@@ -211,8 +246,10 @@ export default function HomeScreen() {
     setShowRemoveConfirm(false);
     setEditName('');
     setEditBreed('');
-    setEditColor('');
+    setEditColors([]);
     setEditSize('');
+    setShowSizeDropdown(false);
+    setShowColorDropdown(false);
     setEditImage('');
     setEditImageType('');
     setEditImageUri('');
@@ -224,6 +261,16 @@ export default function HomeScreen() {
     setEditingPet(null);
     setIsAddMode(false);
     setShowRemoveConfirm(false);
+    setShowSizeDropdown(false);
+    setShowColorDropdown(false);
+  };
+
+  const toggleColor = (color: string) => {
+    setEditColors((prev) =>
+      prev.includes(color)
+        ? prev.filter((item) => item !== color)
+        : [...prev, color]
+    );
   };
 
   const closeProfileModal = () => {
@@ -414,11 +461,7 @@ export default function HomeScreen() {
 
   const savePetChanges = async () => {
     const petDocId = editingPet?.docId || editingPet?.id;
-    const colorString = editColor || '';
-    const colorArray = colorString
-      .split(',')
-      .map((c) => c.trim())
-      .filter((c) => c.length > 0);
+    const colorArray = editColors;
 
     const updates: any = {
       Name: editName || '',
@@ -684,8 +727,66 @@ export default function HomeScreen() {
             <ThemedText type="title" style={styles.modalTitle}>{isAddMode ? 'Add Pet' : 'Edit Pet'}</ThemedText>
             <TextInput style={styles.input} value={editName} onChangeText={setEditName} placeholder="Name" />
             <TextInput style={styles.input} value={editBreed} onChangeText={setEditBreed} placeholder="Breed" />
-            <TextInput style={styles.input} value={editColor} onChangeText={setEditColor} placeholder="Color (comma-separated)" />
-            <TextInput style={styles.input} value={editSize} onChangeText={setEditSize} placeholder="Size" />
+
+            <View style={styles.dropdownSection}>
+              <ThemedText style={styles.dropdownLabel}>Size</ThemedText>
+              <TouchableOpacity
+                style={styles.selectorInput}
+                onPress={() => {
+                  setShowSizeDropdown((prev) => !prev);
+                  setShowColorDropdown(false);
+                }}>
+                <ThemedText style={styles.selectorInputText}>{editSize || 'Select size'}</ThemedText>
+              </TouchableOpacity>
+              {showSizeDropdown && (
+                <View style={styles.dropdownMenu}>
+                  {PET_SIZE_OPTIONS.map((sizeOption) => (
+                    <TouchableOpacity
+                      key={sizeOption}
+                      style={[styles.dropdownOption, editSize === sizeOption ? styles.dropdownOptionSelected : null]}
+                      onPress={() => {
+                        setEditSize(sizeOption);
+                        setShowSizeDropdown(false);
+                      }}>
+                      <ThemedText style={styles.dropdownOptionText}>{sizeOption}</ThemedText>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+            </View>
+
+            <View style={styles.dropdownSection}>
+              <ThemedText style={styles.dropdownLabel}>Colors</ThemedText>
+              <TouchableOpacity
+                style={styles.selectorInput}
+                onPress={() => {
+                  setShowColorDropdown((prev) => !prev);
+                  setShowSizeDropdown(false);
+                }}>
+                <ThemedText style={styles.selectorInputText}>
+                  {editColors.length > 0 ? `${editColors.length} selected` : 'Select colors'}
+                </ThemedText>
+              </TouchableOpacity>
+              {showColorDropdown && (
+                <ScrollView style={styles.dropdownMenuTall} nestedScrollEnabled>
+                  {PET_COLOR_OPTIONS.map((colorOption) => {
+                    const isSelected = editColors.includes(colorOption);
+                    return (
+                      <TouchableOpacity
+                        key={colorOption}
+                        style={[styles.dropdownOption, isSelected ? styles.dropdownOptionSelected : null]}
+                        onPress={() => toggleColor(colorOption)}>
+                        <ThemedText style={styles.dropdownOptionText}>{isSelected ? `✓ ${colorOption}` : colorOption}</ThemedText>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              )}
+              {editColors.length > 0 && (
+                <ThemedText style={styles.selectionSummary}>{editColors.join(', ')}</ThemedText>
+              )}
+            </View>
+
             <TextInput style={styles.input} value={editImage} onChangeText={setEditImage} placeholder="Image filename" />
 
             <TouchableOpacity style={styles.uploadButton} onPress={pickImage}>
@@ -1157,6 +1258,64 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginBottom: 8,
     height: 44,
+  },
+  dropdownSection: {
+    marginBottom: 8,
+  },
+  dropdownLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#2B3A4A',
+    marginBottom: 4,
+  },
+  selectorInput: {
+    borderWidth: 1,
+    borderColor: '#ccc',
+    borderRadius: 8,
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+    backgroundColor: '#fff',
+  },
+  selectorInputText: {
+    fontSize: 14,
+    color: '#253748',
+  },
+  dropdownMenu: {
+    marginTop: 4,
+    borderWidth: 1,
+    borderColor: '#C9D3DE',
+    borderRadius: 8,
+    backgroundColor: '#F8FBFF',
+    overflow: 'hidden',
+  },
+  dropdownMenuTall: {
+    marginTop: 4,
+    borderWidth: 1,
+    borderColor: '#C9D3DE',
+    borderRadius: 8,
+    backgroundColor: '#F8FBFF',
+    maxHeight: 220,
+    overflow: 'hidden',
+  },
+  dropdownOption: {
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2EAF2',
+  },
+  dropdownOptionSelected: {
+    backgroundColor: '#E8F3FF',
+  },
+  dropdownOptionText: {
+    fontSize: 14,
+    color: '#20384E',
+  },
+  selectionSummary: {
+    marginTop: 6,
+    fontSize: 12,
+    color: '#4D6275',
+    lineHeight: 17,
   },
   addressInput: {
     height: 88,

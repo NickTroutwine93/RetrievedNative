@@ -15,10 +15,41 @@ const MAP_ZOOM = 12;
 const PRIVACY_SAFE_MARKER_ZOOM = 13;
 const DEFAULT_RADIUS_MILES = 5;
 const MAPTILER_KEY = process.env.EXPO_PUBLIC_MAPTILER_API_KEY;
+const FILTER_ANY = 'Any';
+const SIZE_FILTER_OPTIONS = [FILTER_ANY, 'XS', 'S', 'M', 'L', 'XL'];
+const COLOR_FILTER_OPTIONS = [
+  FILTER_ANY,
+  'Black',
+  'White',
+  'Brown',
+  'Tan',
+  'Cream',
+  'Fawn',
+  'Red',
+  'Golden',
+  'Gray',
+  'Silver',
+  'Blue',
+  'Liver',
+  'Chocolate',
+  'Brindle',
+  'Merle',
+  'Sable',
+  'Apricot',
+  'Rust',
+  'Bicolor',
+  'Tricolor',
+  'Parti-color',
+  'Mahogany',
+];
 const petImageSources: Record<string, any> = {
   'Rigby.jpg': require('../../assets/pets/Rigby.jpg'),
   'Taz.jpg': require('../../assets/pets/Taz.jpg'),
 };
+
+function normalizeValue(value: any) {
+  return String(value ?? '').trim().toLowerCase();
+}
 
 function milesBetweenPoints(a: { latitude: number; longitude: number }, b: { latitude: number; longitude: number }) {
   const toRad = (value: number) => (value * Math.PI) / 180;
@@ -91,11 +122,64 @@ export default function MapScreen() {
   const [joiningSearchId, setJoiningSearchId] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState('');
   const [mapZoom, setMapZoom] = useState(MAP_ZOOM);
+  const [selectedBreed, setSelectedBreed] = useState(FILTER_ANY);
+  const [selectedSize, setSelectedSize] = useState(FILTER_ANY);
+  const [selectedColor, setSelectedColor] = useState(FILTER_ANY);
+  const [activeFilterMenu, setActiveFilterMenu] = useState<'breed' | 'size' | 'color' | null>(null);
   const placeholderBoxDynamicStyle = { borderColor: palette.border, backgroundColor: palette.surfaceMuted };
   const mapWidgetDynamicStyle = { borderColor: palette.border, backgroundColor: palette.surfaceMuted };
   const metaCardDynamicStyle = { backgroundColor: colorScheme === 'dark' ? 'rgba(19, 34, 49, 0.92)' : 'rgba(255, 255, 255, 0.92)' };
   const searchCardDynamicStyle = { borderColor: palette.border, backgroundColor: palette.surface };
   const petImagePlaceholderDynamicStyle = { backgroundColor: palette.surfaceMuted };
+
+  const breedFilterOptions = useMemo(() => {
+    const uniqueBreeds = Array.from(
+      new Set(
+        areaSearches
+          .map((search) => String(search?.pet?.Breed ?? '').trim())
+          .filter((breed) => breed.length > 0)
+      )
+    ).sort((a, b) => a.localeCompare(b));
+
+    return [FILTER_ANY, ...uniqueBreeds];
+  }, [areaSearches]);
+
+  const filteredSearches = useMemo(() => {
+    const normalizedBreed = normalizeValue(selectedBreed);
+    const normalizedSize = normalizeValue(selectedSize);
+    const normalizedColor = normalizeValue(selectedColor);
+
+    return areaSearches.filter((search) => {
+      const pet = search?.pet ?? {};
+      const petBreed = normalizeValue(pet?.Breed);
+      const petSize = normalizeValue(pet?.Size);
+      const petColors = Array.isArray(pet?.Color)
+        ? pet.Color.map((color: string) => normalizeValue(color))
+        : String(pet?.Color ?? '')
+            .split(',')
+            .map((color) => normalizeValue(color))
+            .filter((color) => color.length > 0);
+
+      const breedMatch = normalizedBreed === normalizeValue(FILTER_ANY) || petBreed === normalizedBreed;
+      const sizeMatch = normalizedSize === normalizeValue(FILTER_ANY) || petSize === normalizedSize;
+      const colorMatch = normalizedColor === normalizeValue(FILTER_ANY) || petColors.includes(normalizedColor);
+
+      return breedMatch && sizeMatch && colorMatch;
+    });
+  }, [areaSearches, selectedBreed, selectedSize, selectedColor]);
+
+  const hasActiveFilters =
+    selectedBreed !== FILTER_ANY || selectedSize !== FILTER_ANY || selectedColor !== FILTER_ANY;
+
+  useEffect(() => {
+    if (!breedFilterOptions.includes(selectedBreed)) {
+      setSelectedBreed(FILTER_ANY);
+    }
+  }, [breedFilterOptions, selectedBreed]);
+
+  useEffect(() => {
+    setActiveFilterMenu(null);
+  }, [center, radiusMiles]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -228,7 +312,7 @@ export default function MapScreen() {
   const centerLongitude = center?.longitude ?? 0;
   const obfuscatedSearchPoints = useMemo(
     () =>
-      areaSearches
+      filteredSearches
         .filter((search) => {
           const location = search?.Location ?? search?.location;
           return Boolean(location?.latitude && location?.longitude);
@@ -246,7 +330,7 @@ export default function MapScreen() {
             label: String(index + 1),
           };
         }),
-    [areaSearches]
+    [filteredSearches]
   );
   const usePrivacyZones = mapZoom > PRIVACY_SAFE_MARKER_ZOOM;
 
@@ -328,12 +412,99 @@ export default function MapScreen() {
         {!loading && showMap && (
           <>
             <ThemedText style={[styles.creditText, { color: palette.textSecondary }]}>Map tiles by MapTiler, data by OpenStreetMap contributors.</ThemedText>
-            <ThemedText style={[styles.resultsHeader, { color: palette.text }]}>Searches in your {radiusMiles} mile radius: {areaSearches.length}</ThemedText>
+            <View style={styles.filtersContainer}>
+              <View style={styles.filtersRow}>
+                <View style={[styles.filterItem, activeFilterMenu === 'breed' ? styles.filterItemActive : null]}>
+                  <ThemedText style={[styles.filterLabel, { color: palette.textSecondary }]}>Breed</ThemedText>
+                  <TouchableOpacity style={[styles.filterButton, { borderColor: palette.border }]} onPress={() => setActiveFilterMenu((prev) => (prev === 'breed' ? null : 'breed'))}>
+                    <ThemedText style={[styles.filterButtonText, { color: palette.text }]} numberOfLines={1}>{selectedBreed}</ThemedText>
+                  </TouchableOpacity>
+                  {activeFilterMenu === 'breed' && (
+                    <ScrollView style={[styles.filterMenuOverlay, { borderColor: palette.border, backgroundColor: palette.surface }]} nestedScrollEnabled>
+                      {breedFilterOptions.map((option) => (
+                        <TouchableOpacity
+                          key={`breed-${option}`}
+                          style={[styles.filterOption, selectedBreed === option ? styles.filterOptionSelected : null]}
+                          onPress={() => {
+                            setSelectedBreed(option);
+                            setActiveFilterMenu(null);
+                          }}>
+                          <ThemedText style={[styles.filterOptionText, { color: palette.text }]}>{option}</ThemedText>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  )}
+                </View>
 
-            {areaSearches.length === 0 ? (
-              <ThemedText style={[styles.emptyText, { color: palette.textSecondary }]}>No active searches are currently within your configured radius.</ThemedText>
+                <View style={[styles.filterItem, activeFilterMenu === 'size' ? styles.filterItemActive : null]}>
+                  <ThemedText style={[styles.filterLabel, { color: palette.textSecondary }]}>Size</ThemedText>
+                  <TouchableOpacity style={[styles.filterButton, { borderColor: palette.border }]} onPress={() => setActiveFilterMenu((prev) => (prev === 'size' ? null : 'size'))}>
+                    <ThemedText style={[styles.filterButtonText, { color: palette.text }]} numberOfLines={1}>{selectedSize}</ThemedText>
+                  </TouchableOpacity>
+                  {activeFilterMenu === 'size' && (
+                    <View style={[styles.filterMenuOverlay, { borderColor: palette.border, backgroundColor: palette.surface }]}>
+                      {SIZE_FILTER_OPTIONS.map((option) => (
+                        <TouchableOpacity
+                          key={`size-${option}`}
+                          style={[styles.filterOption, selectedSize === option ? styles.filterOptionSelected : null]}
+                          onPress={() => {
+                            setSelectedSize(option);
+                            setActiveFilterMenu(null);
+                          }}>
+                          <ThemedText style={[styles.filterOptionText, { color: palette.text }]}>{option}</ThemedText>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
+                </View>
+
+                <View style={[styles.filterItem, activeFilterMenu === 'color' ? styles.filterItemActive : null]}>
+                  <ThemedText style={[styles.filterLabel, { color: palette.textSecondary }]}>Color</ThemedText>
+                  <TouchableOpacity style={[styles.filterButton, { borderColor: palette.border }]} onPress={() => setActiveFilterMenu((prev) => (prev === 'color' ? null : 'color'))}>
+                    <ThemedText style={[styles.filterButtonText, { color: palette.text }]} numberOfLines={1}>{selectedColor}</ThemedText>
+                  </TouchableOpacity>
+                  {activeFilterMenu === 'color' && (
+                    <ScrollView style={[styles.filterMenuOverlay, { borderColor: palette.border, backgroundColor: palette.surface }]} nestedScrollEnabled>
+                      {COLOR_FILTER_OPTIONS.map((option) => (
+                        <TouchableOpacity
+                          key={`color-${option}`}
+                          style={[styles.filterOption, selectedColor === option ? styles.filterOptionSelected : null]}
+                          onPress={() => {
+                            setSelectedColor(option);
+                            setActiveFilterMenu(null);
+                          }}>
+                          <ThemedText style={[styles.filterOptionText, { color: palette.text }]}>{option}</ThemedText>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  )}
+                </View>
+              </View>
+
+              {hasActiveFilters && (
+                <TouchableOpacity
+                  style={[styles.clearFiltersButton, { borderColor: palette.border }]}
+                  onPress={() => {
+                    setSelectedBreed(FILTER_ANY);
+                    setSelectedSize(FILTER_ANY);
+                    setSelectedColor(FILTER_ANY);
+                    setActiveFilterMenu(null);
+                  }}>
+                  <ThemedText style={[styles.clearFiltersButtonText, { color: palette.text }]}>Clear Filters</ThemedText>
+                </TouchableOpacity>
+              )}
+            </View>
+
+            <ThemedText style={[styles.resultsHeader, { color: palette.text }]}>Searches in your {radiusMiles} mile radius: {filteredSearches.length}</ThemedText>
+
+            {filteredSearches.length === 0 ? (
+              <ThemedText style={[styles.emptyText, { color: palette.textSecondary }]}>
+                {hasActiveFilters
+                  ? 'No active searches match the selected filters.'
+                  : 'No active searches are currently within your configured radius.'}
+              </ThemedText>
             ) : (
-              areaSearches.map((search: any, index: number) => (
+              filteredSearches.map((search: any, index: number) => (
                 <View key={search.id} style={[styles.searchCard, searchCardDynamicStyle]}>
                   {(() => {
                     const searcherIds = Array.isArray(search?.searchers)
@@ -483,6 +654,87 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#5a6f82',
     textAlign: 'center',
+  },
+  filtersContainer: {
+    marginTop: 12,
+    marginBottom: 4,
+    position: 'relative',
+    overflow: 'visible',
+    zIndex: 40,
+  },
+  filtersRow: {
+    flexDirection: 'row',
+    gap: 8,
+    zIndex: 20,
+    overflow: 'visible',
+  },
+  filterItem: {
+    flex: 1,
+    position: 'relative',
+    overflow: 'visible',
+  },
+  filterItemActive: {
+    zIndex: 60,
+    elevation: 12,
+  },
+  filterLabel: {
+    fontSize: 12,
+    marginBottom: 4,
+    fontWeight: '600',
+  },
+  filterButton: {
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    minHeight: 38,
+    justifyContent: 'center',
+    backgroundColor: '#ffffff',
+  },
+  filterButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  filterMenuOverlay: {
+    position: 'absolute',
+    top: '100%',
+    left: 0,
+    right: 0,
+    marginTop: 4,
+    borderWidth: 1,
+    borderRadius: 8,
+    maxHeight: 170,
+    overflow: 'hidden',
+    zIndex: 30,
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.16,
+    shadowRadius: 8,
+  },
+  filterOption: {
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e4e9ef',
+  },
+  filterOptionSelected: {
+    backgroundColor: '#e8f3ff',
+  },
+  filterOptionText: {
+    fontSize: 13,
+  },
+  clearFiltersButton: {
+    marginTop: 8,
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: '#ffffff',
+  },
+  clearFiltersButtonText: {
+    fontSize: 12,
+    fontWeight: '700',
   },
   resultsHeader: {
     marginTop: 14,

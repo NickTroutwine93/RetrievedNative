@@ -7,7 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ThemedText } from '@/components/themed-text';
 import { useThemeColor } from '@/hooks/use-theme-color';
 import { auth, db } from '@/src/services/firebaseClient';
-import { getUserData } from '@/src/services/userService';
+import { getUserData, UserRole } from '@/src/services/userService';
 
 export function AppHeader() {
   const insets = useSafeAreaInsets();
@@ -23,6 +23,7 @@ export function AppHeader() {
   const [userName, setUserName] = useState('User');
   const [userEmail, setUserEmail] = useState('');
   const [avatarInitial, setAvatarInitial] = useState('U');
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -30,6 +31,7 @@ export function AppHeader() {
         setUserName('User');
         setUserEmail('');
         setAvatarInitial('U');
+        setIsAdmin(false);
         return;
       }
 
@@ -41,12 +43,15 @@ export function AppHeader() {
         const accountRecord = (account || {}) as Record<string, any>;
         const firstName = accountRecord.firstName ?? accountRecord.FirstName ?? '';
         const lastName = accountRecord.lastName ?? accountRecord.LastName ?? '';
+        const accountRole = Number(accountRecord.role ?? accountRecord.Role ?? UserRole.USER);
         const fullName = [firstName, lastName].filter(Boolean).join(' ').trim();
         setUserName(fullName || 'User');
         setAvatarInitial((firstName?.[0] || email?.[0] || 'U').toUpperCase());
+        setIsAdmin(accountRole === UserRole.ADMIN);
       } catch {
         setUserName('User');
         setAvatarInitial((email?.[0] || 'U').toUpperCase());
+        setIsAdmin(false);
       }
     });
 
@@ -80,6 +85,12 @@ export function AppHeader() {
           <View style={[styles.dropdownPanel, { backgroundColor: dropdownBackground, borderColor: dropdownBorder }]}>
             <Pressable>
               <ThemedText style={[styles.dropdownName, { color: dropdownNameColor }]} numberOfLines={1}>{userName}</ThemedText>
+              {isAdmin ? (
+                <View style={styles.adminBadgeRow}>
+                  <View style={styles.adminBadgeDot} />
+                  <ThemedText style={styles.adminBadgeText}>Admin</ThemedText>
+                </View>
+              ) : null}
               <ThemedText style={[styles.dropdownEmail, { color: dropdownSecondaryTextColor }]} numberOfLines={1}>{userEmail}</ThemedText>
               <View style={[styles.dropdownDivider, { backgroundColor: dropdownBorder }]} />
               <TouchableOpacity style={[styles.dropdownLogoutBtn, { backgroundColor: dangerColor }]} onPress={handleLogout}>
@@ -143,6 +154,28 @@ const styles = StyleSheet.create({
   dropdownEmail: {
     fontSize: 12,
     marginBottom: 10,
+  },
+  adminBadgeRow: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F4E8C1',
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    marginBottom: 8,
+  },
+  adminBadgeDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#8A5D00',
+    marginRight: 6,
+  },
+  adminBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#6B4700',
   },
   dropdownDivider: {
     height: 1,

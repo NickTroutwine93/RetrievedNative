@@ -23,7 +23,7 @@ import { router } from 'expo-router';
 
 import { ThemedText } from '@/components/themed-text';
 import { auth, db } from '@/src/services/firebaseClient';
-import { getUserData, createUserAccount } from '@/src/services/userService';
+import { getUserData, createUserAccount, UserRole } from '@/src/services/userService';
 
 export default function AuthScreen() {
 	const [email, setEmail] = useState('');
@@ -370,6 +370,7 @@ export default function AuthScreen() {
 			await createUserAccount(db, pendingEmail, {
 				firstName: profileFirstName.trim(),
 				lastName: profileLastName.trim(),
+				role: UserRole.USER,
 				radius: profileRadius.trim(),
 				homeAddress: trimmedAddress,
 				location: {

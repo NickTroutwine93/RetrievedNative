@@ -15,6 +15,21 @@ import {
   serverTimestamp,
 } from 'firebase/firestore';
 
+export const UserRole = Object.freeze({
+  USER: 1,
+  SHELTER: 2,
+  ADMIN: 3,
+});
+
+function normalizeUserRole(rawRole) {
+  const parsedRole = Number(rawRole);
+  if (parsedRole === UserRole.SHELTER || parsedRole === UserRole.ADMIN) {
+    return parsedRole;
+  }
+
+  return UserRole.USER;
+}
+
 function mapPetRecord(petDoc) {
   if (!petDoc?.exists()) {
     return null;
@@ -333,6 +348,7 @@ export async function getUserData(db, email) {
       firstName: doc.data().FirstName,
       radius: doc.data().Radius,
       location: doc.data().Location,
+      role: normalizeUserRole(doc.data().Role ?? doc.data().role),
     };
   } catch (error) {
     console.error('Error fetching user data:', error);
@@ -343,12 +359,14 @@ export async function getUserData(db, email) {
 export async function createUserAccount(db, email, profile) {
   try {
     const location = new GeoPoint(profile.location.latitude, profile.location.longitude);
+    const role = normalizeUserRole(profile.role);
 
     const accountDoc = await addDoc(collection(db, 'accounts'), {
       AuthenticationAgent: 'Password',
       Email: email,
       FirstName: profile.firstName,
       LastName: profile.lastName,
+      Role: role,
       Radius: Number(profile.radius) || 5,
       Location: location,
       PetID: [],
@@ -362,6 +380,7 @@ export async function createUserAccount(db, email, profile) {
       Email: email,
       FirstName: profile.firstName,
       LastName: profile.lastName,
+      Role: role,
       Radius: Number(profile.radius) || 5,
       Location: location,
     };
