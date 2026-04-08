@@ -14,6 +14,7 @@ import { endSearch, getActiveSearches, getUserData, getUserSearchHistory, getUse
 const petImageSources: Record<string, any> = {
   'Rigby.jpg': require('../../assets/pets/Rigby.jpg'),
   'Taz.jpg': require('../../assets/pets/Taz.jpg'),
+  'Default.jpg': require('../../assets/pets/Default.jpg'),
 };
 
 export default function SearchesScreen() {
@@ -162,21 +163,15 @@ export default function SearchesScreen() {
         </View>
 
         <View style={styles.petCardRow}>
-          {search?.pet?.Image ? (
-            <Image
-              source={
-                search.pet.Image.startsWith('http')
-                  ? { uri: search.pet.Image }
-                  : petImageSources[search.pet.Image] || require('../../assets/pets/Default.jpg')
-              }
-              style={styles.petImage}
-              resizeMode="cover"
-            />
-          ) : (
-            <View style={[styles.petImagePlaceholder, petImagePlaceholderDynamicStyle]}>
-              <ThemedText style={[styles.petImageText, { color: palette.textSecondary }]}>No image</ThemedText>
-            </View>
-          )}
+          <Image
+            source={
+              search?.pet?.Image && search.pet.Image.startsWith('http')
+                ? { uri: search.pet.Image }
+                : petImageSources[search?.pet?.Image] || require('../../assets/pets/Default.jpg')
+            }
+            style={styles.petImage}
+            resizeMode="cover"
+          />
 
           <View style={styles.petDetails}>
             <ThemedText>Breed: {search?.pet?.Breed ?? 'Unknown'}</ThemedText>
@@ -224,21 +219,15 @@ export default function SearchesScreen() {
           </View>
 
           <View style={styles.petCardRow}>
-            {search?.pet?.Image ? (
-              <Image
-                source={
-                  search.pet.Image.startsWith('http')
-                    ? { uri: search.pet.Image }
-                    : petImageSources[search.pet.Image] || require('../../assets/pets/Default.jpg')
-                }
-                style={styles.petImage}
-                resizeMode="cover"
-              />
-            ) : (
-              <View style={[styles.petImagePlaceholder, petImagePlaceholderDynamicStyle]}>
-                <ThemedText style={[styles.petImageText, { color: palette.textSecondary }]}>No image</ThemedText>
-              </View>
-            )}
+            <Image
+              source={
+                search?.pet?.Image && search.pet.Image.startsWith('http')
+                  ? { uri: search.pet.Image }
+                  : petImageSources[search?.pet?.Image] || require('../../assets/pets/Default.jpg')
+              }
+              style={styles.petImage}
+              resizeMode="cover"
+            />
 
             <View style={styles.petDetails}>
               <ThemedText>Breed: {search?.pet?.Breed ?? 'Unknown'}</ThemedText>

@@ -957,6 +957,7 @@ export async function createSearch(db, searchData) {
       Status: 1,
       Successfull: 0,
       Tipped: [],
+       Info: searchData.info || '',
     });
 
     await setDoc(doc(db, 'searchOrigins', searchId), {
@@ -984,6 +985,7 @@ export async function createSearch(db, searchData) {
       Status: 1,
       Successfull: 0,
       Tipped: [],
+       Info: searchData.info || '',
     };
   } catch (error) {
     console.error('Error creating search:', error);

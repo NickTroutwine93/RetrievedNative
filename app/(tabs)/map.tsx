@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Image, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, Modal, Pressable, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -25,9 +25,40 @@ const COLOR_FILTER_OPTIONS = [
   'White',
   'Multicolor',
 ];
+const DEFAULT_PET_IMAGE = require('../../assets/pets/Default.jpg');
+const BREED_FILTER_OPTIONS = [
+  'Australian Shepherd',
+  'Beagle',
+  'Border Collie',
+  'Boxer',
+  'Bulldog',
+  'Burmese',
+  'Cat',
+  'Chihuahua',
+  'Corgi',
+  'Dachshund',
+  'Dalmatian',
+  'French Bulldog',
+  'German Shepherd',
+  'Golden Retriever',
+  'Great Dane',
+  'Hound',
+  'Labrador Retriever',
+  'Pit Bull / Staffordshire Terrier',
+  'Pomeranian',
+  'Poodle',
+  'Rottweiler',
+  'Schnauzer',
+  'Shih Tzu',
+  'Siberian Husky',
+  'Yorkshire Terrier',
+  'Mixed Breed',
+  'Unknown',
+];
 const petImageSources: Record<string, any> = {
   'Rigby.jpg': require('../../assets/pets/Rigby.jpg'),
   'Taz.jpg': require('../../assets/pets/Taz.jpg'),
+  'Default.jpg': DEFAULT_PET_IMAGE,
 };
 
 function getPetColorSwatchStyle(colorName: string) {
@@ -125,9 +156,11 @@ export default function MapScreen() {
   const [areaSearches, setAreaSearches] = useState<any[]>([]);
   const [relativeTimeTick, setRelativeTimeTick] = useState(Date.now());
   const [joiningSearchId, setJoiningSearchId] = useState<string | null>(null);
+  const [disclaimerVisible, setDisclaimerVisible] = useState(false);
+  const [pendingJoinSearchId, setPendingJoinSearchId] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState('');
   const [mapZoom, setMapZoom] = useState(MAP_ZOOM);
-  const [selectedBreed, setSelectedBreed] = useState(FILTER_ANY);
+  const [selectedBreeds, setSelectedBreeds] = useState<string[]>([]);
   const [selectedSizes, setSelectedSizes] = useState<string[]>([]);
   const [selectedColors, setSelectedColors] = useState<string[]>([]);
   const [activeFilterMenu, setActiveFilterMenu] = useState<'breed' | 'size' | 'color' | null>(null);
@@ -137,20 +170,9 @@ export default function MapScreen() {
   const searchCardDynamicStyle = { borderColor: palette.border, backgroundColor: palette.surface };
   const petImagePlaceholderDynamicStyle = { backgroundColor: palette.surfaceMuted };
 
-  const breedFilterOptions = useMemo(() => {
-    const uniqueBreeds = Array.from(
-      new Set(
-        areaSearches
-          .map((search) => String(search?.pet?.Breed ?? '').trim())
-          .filter((breed) => breed.length > 0)
-      )
-    ).sort((a, b) => a.localeCompare(b));
-
-    return [FILTER_ANY, ...uniqueBreeds];
-  }, [areaSearches]);
 
   const filteredSearches = useMemo(() => {
-    const normalizedBreed = normalizeValue(selectedBreed);
+    const normalizedBreeds = selectedBreeds.map(normalizeValue);
     const normalizedSizes = selectedSizes.map((size) => normalizeValue(size));
     const normalizedColors = selectedColors.map((color) => normalizeValue(color));
 
@@ -165,16 +187,16 @@ export default function MapScreen() {
             .map((color) => normalizeValue(color))
             .filter((color) => color.length > 0);
 
-      const breedMatch = normalizedBreed === normalizeValue(FILTER_ANY) || petBreed === normalizedBreed;
+      const breedMatch = normalizedBreeds.length === 0 || normalizedBreeds.includes(petBreed);
       const sizeMatch = normalizedSizes.length === 0 || normalizedSizes.includes(petSize);
       const colorMatch = normalizedColors.length === 0 || petColors.some((color: string) => normalizedColors.includes(color));
 
       return breedMatch && sizeMatch && colorMatch;
     });
-  }, [areaSearches, selectedBreed, selectedSizes, selectedColors]);
+  }, [areaSearches, selectedBreeds, selectedSizes, selectedColors]);
 
   const hasActiveFilters =
-    selectedBreed !== FILTER_ANY || selectedSizes.length > 0 || selectedColors.length > 0;
+    selectedBreeds.length > 0 || selectedSizes.length > 0 || selectedColors.length > 0;
 
   const toggleFilterSelection = (
     value: string,
@@ -184,12 +206,6 @@ export default function MapScreen() {
       prev.includes(value) ? prev.filter((item) => item !== value) : [...prev, value]
     );
   };
-
-  useEffect(() => {
-    if (!breedFilterOptions.includes(selectedBreed)) {
-      setSelectedBreed(FILTER_ANY);
-    }
-  }, [breedFilterOptions, selectedBreed]);
 
   useEffect(() => {
     setActiveFilterMenu(null);
@@ -348,6 +364,24 @@ export default function MapScreen() {
   );
   const usePrivacyZones = mapZoom > PRIVACY_SAFE_MARKER_ZOOM;
 
+  const promptJoinSearch = (searchId: string) => {
+    setPendingJoinSearchId(searchId);
+    setDisclaimerVisible(true);
+  };
+
+  const handleDisclaimerAgree = () => {
+    setDisclaimerVisible(false);
+    if (pendingJoinSearchId) {
+      void handleJoinSearch(pendingJoinSearchId);
+      setPendingJoinSearchId(null);
+    }
+  };
+
+  const handleDisclaimerCancel = () => {
+    setDisclaimerVisible(false);
+    setPendingJoinSearchId(null);
+  };
+
   const handleJoinSearch = async (searchId: string) => {
     if (!searchId) {
       return;
@@ -366,6 +400,39 @@ export default function MapScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: palette.background }]}>
+      <Modal
+        transparent
+        visible={disclaimerVisible}
+        animationType="fade"
+        onRequestClose={handleDisclaimerCancel}>
+        <Pressable style={styles.disclaimerBackdrop} onPress={handleDisclaimerCancel}>
+          <Pressable style={[styles.disclaimerPanel, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+            <ThemedText style={[styles.disclaimerTitle, { color: palette.text }]}>Safety Reminder</ThemedText>
+            <ThemedText style={[styles.disclaimerBody, { color: palette.textSecondary }]}>
+              By joining this search you agree to assist responsibly. If you encounter the lost animal, do{' '}
+              <ThemedText style={{ fontWeight: '700', color: palette.text }}>not</ThemedText> attempt to approach,
+              chase, or corner it. Lost animals are frightened and may behave unpredictably. Instead, report the
+              sighting through the app so the owner and trained responders can be notified.
+            </ThemedText>
+            <View style={styles.disclaimerActions}>
+              <TouchableOpacity
+                style={[styles.disclaimerCancelBtn, { borderColor: palette.border }]}
+                onPress={handleDisclaimerCancel}
+                accessibilityRole="button"
+                accessibilityLabel="Cancel joining search">
+                <ThemedText style={[styles.disclaimerCancelText, { color: palette.textSecondary }]}>Cancel</ThemedText>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.disclaimerAgreeBtn, { backgroundColor: palette.primary }]}
+                onPress={handleDisclaimerAgree}
+                accessibilityRole="button"
+                accessibilityLabel="Agree and join search">
+                <ThemedText style={styles.disclaimerAgreeText}>I Agree</ThemedText>
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
       <ThemedView style={[styles.header, { borderBottomColor: palette.border, backgroundColor: palette.surface }]}>
         <ThemedText type="title" style={styles.headerTitle}>Searches in Area</ThemedText>
       </ThemedView>
@@ -431,19 +498,22 @@ export default function MapScreen() {
                 <View style={[styles.filterItem, activeFilterMenu === 'breed' ? styles.filterItemActive : null]}>
                   <ThemedText style={[styles.filterLabel, { color: palette.textSecondary }]}>Breed</ThemedText>
                   <TouchableOpacity style={[styles.filterButton, { borderColor: palette.border }]} onPress={() => setActiveFilterMenu((prev) => (prev === 'breed' ? null : 'breed'))}>
-                    <ThemedText style={[styles.filterButtonText, { color: palette.text }]} numberOfLines={1}>{selectedBreed}</ThemedText>
+                    <ThemedText style={[styles.filterButtonText, { color: palette.text }]} numberOfLines={1}>
+                      {selectedBreeds.length > 0 ? `${selectedBreeds.length} selected` : FILTER_ANY}
+                    </ThemedText>
                   </TouchableOpacity>
                   {activeFilterMenu === 'breed' && (
                     <ScrollView style={[styles.filterMenuOverlay, { borderColor: palette.border, backgroundColor: palette.surface }]} nestedScrollEnabled>
-                      {breedFilterOptions.map((option) => (
+                      {BREED_FILTER_OPTIONS.map((option) => (
                         <TouchableOpacity
                           key={`breed-${option}`}
-                          style={[styles.filterOption, selectedBreed === option ? styles.filterOptionSelected : null]}
+                          style={[styles.filterOption, selectedBreeds.includes(option) ? styles.filterOptionSelected : null]}
                           onPress={() => {
-                            setSelectedBreed(option);
-                            setActiveFilterMenu(null);
+                            toggleFilterSelection(option, setSelectedBreeds);
                           }}>
-                          <ThemedText style={[styles.filterOptionText, { color: palette.text }]}>{option}</ThemedText>
+                          <ThemedText style={[styles.filterOptionText, { color: palette.text }]}>
+                            {selectedBreeds.includes(option) ? `✓ ${option}` : option}
+                          </ThemedText>
                         </TouchableOpacity>
                       ))}
                     </ScrollView>
@@ -519,7 +589,7 @@ export default function MapScreen() {
                 <TouchableOpacity
                   style={[styles.clearFiltersButton, { borderColor: palette.border }]}
                   onPress={() => {
-                    setSelectedBreed(FILTER_ANY);
+                    setSelectedBreeds([]);
                     setSelectedSizes([]);
                     setSelectedColors([]);
                     setActiveFilterMenu(null);
@@ -563,21 +633,15 @@ export default function MapScreen() {
                   </View>
 
                   <View style={styles.petCardRow}>
-                    {search?.pet?.Image ? (
-                      <Image
-                        source={
-                          search.pet.Image.startsWith('http')
-                            ? { uri: search.pet.Image }
-                            : petImageSources[search.pet.Image] || require('../../assets/pets/Default.jpg')
-                        }
-                        style={styles.petImage}
-                        resizeMode="cover"
-                      />
-                    ) : (
-                      <View style={[styles.petImagePlaceholder, petImagePlaceholderDynamicStyle]}>
-                        <ThemedText style={[styles.petImageText, { color: palette.textSecondary }]}>No image</ThemedText>
-                      </View>
-                    )}
+                    <Image
+                      source={
+                        search?.pet?.Image && search.pet.Image.startsWith('http')
+                          ? { uri: search.pet.Image }
+                          : petImageSources[search?.pet?.Image] || DEFAULT_PET_IMAGE
+                      }
+                      style={styles.petImage}
+                      resizeMode="cover"
+                    />
 
                     <View style={styles.petDetails}>
                       <ThemedText>Breed: {search?.pet?.Breed ?? 'Unknown'}</ThemedText>
@@ -595,7 +659,7 @@ export default function MapScreen() {
                         return;
                       }
 
-                      void handleJoinSearch(search.id);
+                      promptJoinSearch(search.id);
                     }}
                     disabled={!isJoined && joiningSearchId === search.id}
                     accessibilityRole="button"
@@ -890,5 +954,59 @@ const styles = StyleSheet.create({
   joinSearchButtonText: {
     color: '#fff',
     fontWeight: 'bold',
+  },
+  disclaimerBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  disclaimerPanel: {
+    width: '88%',
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingVertical: 24,
+    paddingHorizontal: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 10,
+    elevation: 10,
+  },
+  disclaimerTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    marginBottom: 12,
+  },
+  disclaimerBody: {
+    fontSize: 14,
+    lineHeight: 21,
+    marginBottom: 24,
+  },
+  disclaimerActions: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  disclaimerCancelBtn: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingVertical: 11,
+    alignItems: 'center',
+  },
+  disclaimerCancelText: {
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  disclaimerAgreeBtn: {
+    flex: 1,
+    borderRadius: 8,
+    paddingVertical: 11,
+    alignItems: 'center',
+  },
+  disclaimerAgreeText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 14,
   },
 });

@@ -335,6 +335,7 @@ export default function SearchDetailScreen() {
     backgroundColor: palette.surface,
     borderColor: palette.border,
   };
+  const searchInfoText = String(search?.Info ?? search?.info ?? '').trim();
 
   const formatTimeSinceSearch = (searchDate: any) => {
     if (!searchDate) {
@@ -601,6 +602,13 @@ export default function SearchDetailScreen() {
                   <ThemedText>Status: {search?.status ?? search?.Status ?? 'Unknown'}</ThemedText>
                 </View>
               </View>
+
+              {searchInfoText ? (
+                <View style={styles.searchInfoSection}>
+                  <ThemedText style={styles.searchInfoLabel}>Info:</ThemedText>
+                  <ThemedText style={styles.searchInfoText}>{searchInfoText}</ThemedText>
+                </View>
+              ) : null}
             </View>
 
             <View style={styles.mapSection}>
@@ -988,6 +996,20 @@ const styles = StyleSheet.create({
   petDetails: {
     flex: 1,
     gap: 4,
+  },
+  searchInfoSection: {
+    marginTop: 10,
+    gap: 4,
+  },
+  searchInfoLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#2B3A4A',
+  },
+  searchInfoText: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#2B3A4A',
   },
   mapSection: {
     gap: 10,

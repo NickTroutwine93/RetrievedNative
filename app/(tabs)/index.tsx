@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { StyleSheet, ScrollView, View, Image, TouchableOpacity, Modal, TextInput, Alert } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -15,9 +14,39 @@ import { getUserData, getUserPets, updatePet, addPet, deactivatePet, updateUserP
 const petImageSources: Record<string, any> = {
   'Rigby.jpg': require('../../assets/pets/Rigby.jpg'),
   'Taz.jpg': require('../../assets/pets/Taz.jpg'),
+  'Default.jpg': require('../../assets/pets/Default.jpg'),
 };
 const MAPTILER_KEY = process.env.EXPO_PUBLIC_MAPTILER_API_KEY;
 const PET_SIZE_OPTIONS = ['XS', 'S', 'M', 'L', 'XL'];
+const PET_BREED_OPTIONS = [
+  'Australian Shepherd',
+  'Beagle',
+  'Border Collie',
+  'Boxer',
+  'Bulldog',
+  'Burmese',
+  'Cat',
+  'Chihuahua',
+  'Corgi',
+  'Dachshund',
+  'Dalmatian',
+  'French Bulldog',
+  'German Shepherd',
+  'Golden Retriever',
+  'Great Dane',
+  'Hound',
+  'Labrador Retriever',
+  'Pit Bull / Staffordshire Terrier',
+  'Pomeranian',
+  'Poodle',
+  'Rottweiler',
+  'Schnauzer',
+  'Shih Tzu',
+  'Siberian Husky',
+  'Yorkshire Terrier',
+  'Mixed Breed',
+  'Unknown',
+];
 const PET_COLOR_OPTIONS = [
   'Black',
   'Brown',
@@ -60,6 +89,7 @@ export default function HomeScreen() {
   const [editBreed, setEditBreed] = useState('');
   const [editColors, setEditColors] = useState<string[]>([]);
   const [editSize, setEditSize] = useState('');
+  const [showBreedDropdown, setShowBreedDropdown] = useState(false);
   const [showSizeDropdown, setShowSizeDropdown] = useState(false);
   const [showColorDropdown, setShowColorDropdown] = useState(false);
   const [editImage, setEditImage] = useState('');
@@ -83,6 +113,9 @@ export default function HomeScreen() {
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [creatingSearchPetId, setCreatingSearchPetId] = useState<string | null>(null);
   const [activeSearchesByPet, setActiveSearchesByPet] = useState<Record<string, any>>({});
+    const [searchInfoModalVisible, setSearchInfoModalVisible] = useState(false);
+    const [searchInfoPending, setSearchInfoPending] = useState<PetRecord | null>(null);
+    const [searchInfo, setSearchInfo] = useState('');
   const [relativeTimeTick, setRelativeTimeTick] = useState(Date.now());
 
   type PetRecord = {
@@ -254,6 +287,7 @@ export default function HomeScreen() {
     setEditBreed('');
     setEditColors([]);
     setEditSize('');
+    setShowBreedDropdown(false);
     setShowSizeDropdown(false);
     setShowColorDropdown(false);
     setEditImage('');
@@ -267,6 +301,7 @@ export default function HomeScreen() {
     setEditingPet(null);
     setIsAddMode(false);
     setShowRemoveConfirm(false);
+    setShowBreedDropdown(false);
     setShowSizeDropdown(false);
     setShowColorDropdown(false);
   };
@@ -411,34 +446,6 @@ export default function HomeScreen() {
       setProfileAddressError(error?.message || 'Address lookup failed. Please try again.');
     } finally {
       setIsGeocodingAddress(false);
-    }
-  };
-
-  const pickImage = async () => {
-    const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permissionResult.granted) {
-      Alert.alert('Permission required', 'Permission to access media library is required to choose a photo.');
-      return;
-    }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.8,
-      allowsEditing: true,
-    });
-
-    if (!result.canceled) {
-      const uri = (result as any).uri || (result as any).assets?.[0]?.uri;
-      if (!uri) {
-        Alert.alert('Error', 'Could not get image URI from picker result.');
-        return;
-      }
-
-      const fileName = uri.split('/').pop() || `photo-${Date.now()}.jpg`;
-      const fileType = (result as any).type || 'image';
-      setEditImage(fileName);
-      setEditImageType(fileType);
-      setEditImageUri(uri);
     }
   };
 
@@ -619,7 +626,18 @@ export default function HomeScreen() {
     }
   };
 
-  const handleCreateSearch = async (pet: PetRecord) => {
+  const handleCreateSearch = (pet: PetRecord) => {
+    setSearchInfoPending(pet);
+    setSearchInfo('');
+    setSearchInfoModalVisible(true);
+  };
+
+  const confirmCreateSearch = async () => {
+    if (!searchInfoPending) {
+      return;
+    }
+
+    const pet = searchInfoPending;
     const petId = pet.docId || pet.id;
     const ownerId = pet.OwnerID || user?.id;
     const userLocation = user?.location;
@@ -649,6 +667,7 @@ export default function HomeScreen() {
           longitude: userLocation.longitude,
         },
         radius: 5,
+        info: searchInfo,
       });
 
       setUser((prev: any) => ({
@@ -672,13 +691,22 @@ export default function HomeScreen() {
           },
         },
       }));
+      setSearchInfoModalVisible(false);
+      setSearchInfoPending(null);
+      setSearchInfo('');
       Alert.alert('Search created', `Created a new search for ${pet.Name ?? 'this pet'}.`);
-      router.push('/(tabs)/searches' as any);
+      router.push({ pathname: '/search/[id]', params: { id: createdSearch.id } } as any);
     } catch (error: any) {
       Alert.alert('Create search failed', error?.message || 'Unable to create search right now.');
     } finally {
       setCreatingSearchPetId(null);
     }
+  };
+
+  const cancelCreateSearch = () => {
+    setSearchInfoModalVisible(false);
+    setSearchInfoPending(null);
+    setSearchInfo('');
   };
 
   const openSearchDetails = (searchId?: string) => {
@@ -732,7 +760,34 @@ export default function HomeScreen() {
           <View style={styles.modalContent}>
             <ThemedText type="title" style={styles.modalTitle}>{isAddMode ? 'Add Pet' : 'Edit Pet'}</ThemedText>
             <TextInput style={styles.input} value={editName} onChangeText={setEditName} placeholder="Name" />
-            <TextInput style={styles.input} value={editBreed} onChangeText={setEditBreed} placeholder="Breed" />
+
+            <View style={styles.dropdownSection}>
+              <ThemedText style={styles.dropdownLabel}>Breed</ThemedText>
+              <TouchableOpacity
+                style={styles.selectorInput}
+                onPress={() => {
+                  setShowBreedDropdown((prev) => !prev);
+                  setShowSizeDropdown(false);
+                  setShowColorDropdown(false);
+                }}>
+                <ThemedText style={styles.selectorInputText}>{editBreed || 'Select breed'}</ThemedText>
+              </TouchableOpacity>
+              {showBreedDropdown && (
+                <ScrollView style={styles.dropdownMenuTall} nestedScrollEnabled>
+                  {PET_BREED_OPTIONS.map((breedOption) => (
+                    <TouchableOpacity
+                      key={breedOption}
+                      style={[styles.dropdownOption, editBreed === breedOption ? styles.dropdownOptionSelected : null]}
+                      onPress={() => {
+                        setEditBreed(breedOption);
+                        setShowBreedDropdown(false);
+                      }}>
+                      <ThemedText style={styles.dropdownOptionText}>{breedOption}</ThemedText>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              )}
+            </View>
 
             <View style={styles.dropdownSection}>
               <ThemedText style={styles.dropdownLabel}>Size</ThemedText>
@@ -740,6 +795,7 @@ export default function HomeScreen() {
                 style={styles.selectorInput}
                 onPress={() => {
                   setShowSizeDropdown((prev) => !prev);
+                  setShowBreedDropdown(false);
                   setShowColorDropdown(false);
                 }}>
                 <ThemedText style={styles.selectorInputText}>{editSize || 'Select size'}</ThemedText>
@@ -767,6 +823,7 @@ export default function HomeScreen() {
                 style={styles.selectorInput}
                 onPress={() => {
                   setShowColorDropdown((prev) => !prev);
+                  setShowBreedDropdown(false);
                   setShowSizeDropdown(false);
                 }}>
                 <ThemedText style={styles.selectorInputText}>
@@ -809,17 +866,6 @@ export default function HomeScreen() {
                 <ThemedText style={styles.selectionSummary}>{editColors.join(', ')}</ThemedText>
               )}
             </View>
-
-            <TextInput style={styles.input} value={editImage} onChangeText={setEditImage} placeholder="Image filename" />
-
-            <TouchableOpacity style={styles.uploadButton} onPress={pickImage}>
-              <ThemedText style={styles.uploadButtonText}>Choose Photo</ThemedText>
-            </TouchableOpacity>
-            {editImageUri ? (
-              <Image source={{ uri: editImageUri }} style={styles.previewImage} resizeMode="cover" />
-            ) : petImageSources[editImage] ? (
-              <Image source={petImageSources[editImage]} style={styles.previewImage} resizeMode="cover" />
-            ) : null}
 
             <View style={styles.modalActions}>
               <TouchableOpacity style={styles.saveButton} onPress={savePetChanges} disabled={isSubmitting}>
@@ -946,6 +992,43 @@ export default function HomeScreen() {
       </Modal>
 
       <ScrollView style={styles.scrollContainer} contentContainerStyle={styles.scrollContent}>
+              <Modal
+                animationType="slide"
+                transparent={true}
+                visible={searchInfoModalVisible}
+                onRequestClose={cancelCreateSearch}>
+                <View style={styles.modalOverlay}>
+                  <View style={styles.modalContent}>
+                    <ThemedText type="title" style={styles.modalTitle}>Create Search</ThemedText>
+                    <ThemedText style={styles.modalSubtitle}>
+                      Add information or a description for search volunteers about {searchInfoPending?.Name ?? 'your pet'}.
+                    </ThemedText>
+                    <TextInput
+                      style={[styles.searchInfoInput]}
+                      value={searchInfo}
+                      onChangeText={setSearchInfo}
+                      placeholder="Lost pet last seen near south park, has a red collar..."
+                      placeholderTextColor="#999"
+                      multiline
+                      numberOfLines={4}
+                    />
+                    <View style={styles.modalActions}>
+                      <TouchableOpacity style={styles.cancelButton} onPress={cancelCreateSearch} disabled={creatingSearchPetId !== null}>
+                        <ThemedText style={styles.cancelButtonText}>Cancel</ThemedText>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.saveButton}
+                        onPress={confirmCreateSearch}
+                        disabled={creatingSearchPetId !== null}>
+                        <ThemedText style={styles.saveButtonText}>
+                          {creatingSearchPetId !== null ? 'Creating...' : 'Create Search'}
+                        </ThemedText>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </View>
+              </Modal>
+
         {loading ? (
           <ThemedText>Loading...</ThemedText>
         ) : (
@@ -1000,21 +1083,15 @@ export default function HomeScreen() {
                 </View>
 
                 <View style={styles.petCardRow}>
-                  {pet.Image ? (
-                    <Image
-                      source={
-                        pet.Image.startsWith('http')
-                          ? { uri: pet.Image }
-                          : petImageSources[pet.Image] || require('../../assets/pets/Default.jpg')
-                      }
-                      style={styles.petImage}
-                      resizeMode="cover"
-                    />
-                  ) : (
-                    <View style={styles.petImagePlaceholder}>
-                      <ThemedText style={styles.petImageText}>No image</ThemedText>
-                    </View>
-                  )}
+                  <Image
+                    source={
+                      pet.Image && pet.Image.startsWith('http')
+                        ? { uri: pet.Image }
+                        : petImageSources[pet.Image] || require('../../assets/pets/Default.jpg')
+                    }
+                    style={styles.petImage}
+                    resizeMode="cover"
+                  />
 
                   <View style={styles.petDetails}>
                     <ThemedText>Breed: {pet.Breed ?? 'Unknown'}</ThemedText>
@@ -1274,6 +1351,10 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginBottom: 12,
   },
+    modalSubtitle: {
+      fontSize: 14,
+      marginBottom: 16,
+    },
   input: {
     borderWidth: 1,
     borderColor: '#ccc',
@@ -1282,6 +1363,17 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     height: 44,
   },
+    searchInfoInput: {
+      borderColor: '#ccc',
+      color: '#000',
+      borderWidth: 1,
+      borderRadius: 8,
+      paddingHorizontal: 12,
+      paddingVertical: 10,
+      fontSize: 14,
+      marginBottom: 20,
+      textAlignVertical: 'top',
+    },
   dropdownSection: {
     marginBottom: 8,
   },
