@@ -20,28 +20,34 @@ const MAPTILER_KEY = process.env.EXPO_PUBLIC_MAPTILER_API_KEY;
 const PET_SIZE_OPTIONS = ['XS', 'S', 'M', 'L', 'XL'];
 const PET_COLOR_OPTIONS = [
   'Black',
-  'White',
   'Brown',
   'Tan',
-  'Cream',
-  'Fawn',
-  'Red',
-  'Golden',
   'Gray',
-  'Silver',
-  'Blue',
-  'Liver',
-  'Chocolate',
-  'Brindle',
-  'Merle',
-  'Sable',
-  'Apricot',
-  'Rust',
-  'Bicolor',
-  'Tricolor',
-  'Parti-color',
-  'Mahogany',
+  'White',
+  'Multicolor',
 ];
+
+function getPetColorSwatchStyle(colorName: string) {
+  const key = String(colorName || '').toLowerCase();
+  const swatchMap: Record<string, { backgroundColor: string; borderColor: string }> = {
+    black: { backgroundColor: '#1f1f1f', borderColor: '#1f1f1f' },
+    brown: { backgroundColor: '#8b5a2b', borderColor: '#8b5a2b' },
+    tan: { backgroundColor: '#d2b48c', borderColor: '#d2b48c' },
+    gray: { backgroundColor: '#8a8f98', borderColor: '#8a8f98' },
+    white: { backgroundColor: '#ffffff', borderColor: '#9ca3af' },
+    multicolor: { backgroundColor: '#a78bfa', borderColor: '#7c3aed' },
+  };
+
+  return swatchMap[key] || { backgroundColor: '#9ca3af', borderColor: '#9ca3af' };
+}
+
+function getMulticolorSwatchParts(selectedColors: string[]) {
+  const normalizedSelected = selectedColors.map((color) => String(color).toLowerCase());
+  const explicitColors = normalizedSelected.filter((color) => color !== 'multicolor');
+  const palette = explicitColors.length > 0 ? explicitColors : ['white', 'brown'];
+
+  return palette.map((color) => getPetColorSwatchStyle(color).backgroundColor);
+}
 
 export default function HomeScreen() {
   const [user, setUser] = useState<any>(null);
@@ -771,12 +777,29 @@ export default function HomeScreen() {
                 <ScrollView style={styles.dropdownMenuTall} nestedScrollEnabled>
                   {PET_COLOR_OPTIONS.map((colorOption) => {
                     const isSelected = editColors.includes(colorOption);
+                    const swatchStyle = getPetColorSwatchStyle(colorOption);
+                    const swatchParts =
+                      colorOption === 'Multicolor' ? getMulticolorSwatchParts(editColors) : [];
                     return (
                       <TouchableOpacity
                         key={colorOption}
                         style={[styles.dropdownOption, isSelected ? styles.dropdownOptionSelected : null]}
                         onPress={() => toggleColor(colorOption)}>
-                        <ThemedText style={styles.dropdownOptionText}>{isSelected ? `✓ ${colorOption}` : colorOption}</ThemedText>
+                        <View style={styles.dropdownOptionRow}>
+                          {colorOption === 'Multicolor' ? (
+                            <View style={[styles.colorSwatch, styles.colorSwatchMulticolor]}>
+                              {swatchParts.map((partColor, index) => (
+                                <View
+                                  key={`${colorOption}-part-${index}`}
+                                  style={[styles.colorSwatchPart, { backgroundColor: partColor }]}
+                                />
+                              ))}
+                            </View>
+                          ) : (
+                            <View style={[styles.colorSwatch, swatchStyle]} />
+                          )}
+                          <ThemedText style={styles.dropdownOptionText}>{isSelected ? `✓ ${colorOption}` : colorOption}</ThemedText>
+                        </View>
                       </TouchableOpacity>
                     );
                   })}
@@ -1303,6 +1326,25 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
     borderBottomWidth: 1,
     borderBottomColor: '#E2EAF2',
+  },
+  dropdownOptionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  colorSwatch: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 1,
+    marginRight: 8,
+  },
+  colorSwatchMulticolor: {
+    flexDirection: 'row',
+    overflow: 'hidden',
+    borderColor: '#7c3aed',
+  },
+  colorSwatchPart: {
+    flex: 1,
   },
   dropdownOptionSelected: {
     backgroundColor: '#E8F3FF',

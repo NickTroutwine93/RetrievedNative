@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Modal, Pressable, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
 import { router } from 'expo-router';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -20,6 +21,7 @@ export function AppHeader() {
   const dangerColor = useThemeColor({}, 'danger');
   const overlayColor = useThemeColor({}, 'overlay');
   const [dropdownVisible, setDropdownVisible] = useState(false);
+  const [brandImageFailed, setBrandImageFailed] = useState(false);
   const [userName, setUserName] = useState('User');
   const [userEmail, setUserEmail] = useState('');
   const [avatarInitial, setAvatarInitial] = useState('U');
@@ -67,7 +69,16 @@ export function AppHeader() {
   return (
     <>
       <View style={[styles.appHeader, { backgroundColor: headerBackground, paddingTop: Math.max(insets.top, 8) }]}>
-        <ThemedText style={styles.logoText}>Retrieved</ThemedText>
+        {brandImageFailed ? (
+          <ThemedText style={styles.brandFallbackText}>Retrieved</ThemedText>
+        ) : (
+          <ExpoImage
+            source={require('../assets/images/Retrieved-Wide-Transparent.png')}
+            style={styles.brandIcon}
+            contentFit="fill"
+            onError={() => setBrandImageFailed(true)}
+          />
+        )}
         <TouchableOpacity
           style={[styles.avatarCircle, { backgroundColor: avatarBackground }]}
           onPress={() => setDropdownVisible((v) => !v)}
@@ -112,10 +123,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  logoText: {
+  brandIcon: {
+    width: 200,
+    height: 50,
+  },
+  brandFallbackText: {
     color: '#fff',
-    fontSize: 32,
-    fontWeight: 'bold',
+    fontSize: 28,
+    fontWeight: '800',
+    letterSpacing: 0.3,
   },
   avatarCircle: {
     width: 44,

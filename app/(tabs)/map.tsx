@@ -16,36 +16,41 @@ const PRIVACY_SAFE_MARKER_ZOOM = 13;
 const DEFAULT_RADIUS_MILES = 5;
 const MAPTILER_KEY = process.env.EXPO_PUBLIC_MAPTILER_API_KEY;
 const FILTER_ANY = 'Any';
-const SIZE_FILTER_OPTIONS = [FILTER_ANY, 'XS', 'S', 'M', 'L', 'XL'];
+const SIZE_FILTER_OPTIONS = ['XS', 'S', 'M', 'L', 'XL'];
 const COLOR_FILTER_OPTIONS = [
-  FILTER_ANY,
   'Black',
-  'White',
   'Brown',
   'Tan',
-  'Cream',
-  'Fawn',
-  'Red',
-  'Golden',
   'Gray',
-  'Silver',
-  'Blue',
-  'Liver',
-  'Chocolate',
-  'Brindle',
-  'Merle',
-  'Sable',
-  'Apricot',
-  'Rust',
-  'Bicolor',
-  'Tricolor',
-  'Parti-color',
-  'Mahogany',
+  'White',
+  'Multicolor',
 ];
 const petImageSources: Record<string, any> = {
   'Rigby.jpg': require('../../assets/pets/Rigby.jpg'),
   'Taz.jpg': require('../../assets/pets/Taz.jpg'),
 };
+
+function getPetColorSwatchStyle(colorName: string) {
+  const key = String(colorName || '').toLowerCase();
+  const swatchMap: Record<string, { backgroundColor: string; borderColor: string }> = {
+    black: { backgroundColor: '#1f1f1f', borderColor: '#1f1f1f' },
+    brown: { backgroundColor: '#8b5a2b', borderColor: '#8b5a2b' },
+    tan: { backgroundColor: '#d2b48c', borderColor: '#d2b48c' },
+    gray: { backgroundColor: '#8a8f98', borderColor: '#8a8f98' },
+    white: { backgroundColor: '#ffffff', borderColor: '#9ca3af' },
+    multicolor: { backgroundColor: '#a78bfa', borderColor: '#7c3aed' },
+  };
+
+  return swatchMap[key] || { backgroundColor: '#9ca3af', borderColor: '#9ca3af' };
+}
+
+function getMulticolorSwatchParts(selectedColors: string[]) {
+  const normalizedSelected = selectedColors.map((color) => String(color).toLowerCase());
+  const explicitColors = normalizedSelected.filter((color) => color !== 'multicolor');
+  const palette = explicitColors.length > 0 ? explicitColors : ['white', 'brown'];
+
+  return palette.map((color) => getPetColorSwatchStyle(color).backgroundColor);
+}
 
 function normalizeValue(value: any) {
   return String(value ?? '').trim().toLowerCase();
@@ -123,8 +128,8 @@ export default function MapScreen() {
   const [currentUserId, setCurrentUserId] = useState('');
   const [mapZoom, setMapZoom] = useState(MAP_ZOOM);
   const [selectedBreed, setSelectedBreed] = useState(FILTER_ANY);
-  const [selectedSize, setSelectedSize] = useState(FILTER_ANY);
-  const [selectedColor, setSelectedColor] = useState(FILTER_ANY);
+  const [selectedSizes, setSelectedSizes] = useState<string[]>([]);
+  const [selectedColors, setSelectedColors] = useState<string[]>([]);
   const [activeFilterMenu, setActiveFilterMenu] = useState<'breed' | 'size' | 'color' | null>(null);
   const placeholderBoxDynamicStyle = { borderColor: palette.border, backgroundColor: palette.surfaceMuted };
   const mapWidgetDynamicStyle = { borderColor: palette.border, backgroundColor: palette.surfaceMuted };
@@ -146,8 +151,8 @@ export default function MapScreen() {
 
   const filteredSearches = useMemo(() => {
     const normalizedBreed = normalizeValue(selectedBreed);
-    const normalizedSize = normalizeValue(selectedSize);
-    const normalizedColor = normalizeValue(selectedColor);
+    const normalizedSizes = selectedSizes.map((size) => normalizeValue(size));
+    const normalizedColors = selectedColors.map((color) => normalizeValue(color));
 
     return areaSearches.filter((search) => {
       const pet = search?.pet ?? {};
@@ -161,15 +166,24 @@ export default function MapScreen() {
             .filter((color) => color.length > 0);
 
       const breedMatch = normalizedBreed === normalizeValue(FILTER_ANY) || petBreed === normalizedBreed;
-      const sizeMatch = normalizedSize === normalizeValue(FILTER_ANY) || petSize === normalizedSize;
-      const colorMatch = normalizedColor === normalizeValue(FILTER_ANY) || petColors.includes(normalizedColor);
+      const sizeMatch = normalizedSizes.length === 0 || normalizedSizes.includes(petSize);
+      const colorMatch = normalizedColors.length === 0 || petColors.some((color: string) => normalizedColors.includes(color));
 
       return breedMatch && sizeMatch && colorMatch;
     });
-  }, [areaSearches, selectedBreed, selectedSize, selectedColor]);
+  }, [areaSearches, selectedBreed, selectedSizes, selectedColors]);
 
   const hasActiveFilters =
-    selectedBreed !== FILTER_ANY || selectedSize !== FILTER_ANY || selectedColor !== FILTER_ANY;
+    selectedBreed !== FILTER_ANY || selectedSizes.length > 0 || selectedColors.length > 0;
+
+  const toggleFilterSelection = (
+    value: string,
+    setSelectedValues: React.Dispatch<React.SetStateAction<string[]>>
+  ) => {
+    setSelectedValues((prev) =>
+      prev.includes(value) ? prev.filter((item) => item !== value) : [...prev, value]
+    );
+  };
 
   useEffect(() => {
     if (!breedFilterOptions.includes(selectedBreed)) {
@@ -439,19 +453,22 @@ export default function MapScreen() {
                 <View style={[styles.filterItem, activeFilterMenu === 'size' ? styles.filterItemActive : null]}>
                   <ThemedText style={[styles.filterLabel, { color: palette.textSecondary }]}>Size</ThemedText>
                   <TouchableOpacity style={[styles.filterButton, { borderColor: palette.border }]} onPress={() => setActiveFilterMenu((prev) => (prev === 'size' ? null : 'size'))}>
-                    <ThemedText style={[styles.filterButtonText, { color: palette.text }]} numberOfLines={1}>{selectedSize}</ThemedText>
+                    <ThemedText style={[styles.filterButtonText, { color: palette.text }]} numberOfLines={1}>
+                      {selectedSizes.length > 0 ? `${selectedSizes.length} selected` : FILTER_ANY}
+                    </ThemedText>
                   </TouchableOpacity>
                   {activeFilterMenu === 'size' && (
                     <View style={[styles.filterMenuOverlay, { borderColor: palette.border, backgroundColor: palette.surface }]}>
                       {SIZE_FILTER_OPTIONS.map((option) => (
                         <TouchableOpacity
                           key={`size-${option}`}
-                          style={[styles.filterOption, selectedSize === option ? styles.filterOptionSelected : null]}
+                          style={[styles.filterOption, selectedSizes.includes(option) ? styles.filterOptionSelected : null]}
                           onPress={() => {
-                            setSelectedSize(option);
-                            setActiveFilterMenu(null);
+                            toggleFilterSelection(option, setSelectedSizes);
                           }}>
-                          <ThemedText style={[styles.filterOptionText, { color: palette.text }]}>{option}</ThemedText>
+                          <ThemedText style={[styles.filterOptionText, { color: palette.text }]}>
+                            {selectedSizes.includes(option) ? `✓ ${option}` : option}
+                          </ThemedText>
                         </TouchableOpacity>
                       ))}
                     </View>
@@ -461,19 +478,36 @@ export default function MapScreen() {
                 <View style={[styles.filterItem, activeFilterMenu === 'color' ? styles.filterItemActive : null]}>
                   <ThemedText style={[styles.filterLabel, { color: palette.textSecondary }]}>Color</ThemedText>
                   <TouchableOpacity style={[styles.filterButton, { borderColor: palette.border }]} onPress={() => setActiveFilterMenu((prev) => (prev === 'color' ? null : 'color'))}>
-                    <ThemedText style={[styles.filterButtonText, { color: palette.text }]} numberOfLines={1}>{selectedColor}</ThemedText>
+                    <ThemedText style={[styles.filterButtonText, { color: palette.text }]} numberOfLines={1}>
+                      {selectedColors.length > 0 ? `${selectedColors.length} selected` : FILTER_ANY}
+                    </ThemedText>
                   </TouchableOpacity>
                   {activeFilterMenu === 'color' && (
                     <ScrollView style={[styles.filterMenuOverlay, { borderColor: palette.border, backgroundColor: palette.surface }]} nestedScrollEnabled>
                       {COLOR_FILTER_OPTIONS.map((option) => (
                         <TouchableOpacity
                           key={`color-${option}`}
-                          style={[styles.filterOption, selectedColor === option ? styles.filterOptionSelected : null]}
+                          style={[styles.filterOption, selectedColors.includes(option) ? styles.filterOptionSelected : null]}
                           onPress={() => {
-                            setSelectedColor(option);
-                            setActiveFilterMenu(null);
+                            toggleFilterSelection(option, setSelectedColors);
                           }}>
-                          <ThemedText style={[styles.filterOptionText, { color: palette.text }]}>{option}</ThemedText>
+                          <View style={styles.filterOptionRow}>
+                            {option === 'Multicolor' ? (
+                              <View style={[styles.colorSwatch, styles.colorSwatchMulticolor]}>
+                                {getMulticolorSwatchParts(selectedColors).map((partColor, index) => (
+                                  <View
+                                    key={`${option}-part-${index}`}
+                                    style={[styles.colorSwatchPart, { backgroundColor: partColor }]}
+                                  />
+                                ))}
+                              </View>
+                            ) : (
+                              <View style={[styles.colorSwatch, getPetColorSwatchStyle(option)]} />
+                            )}
+                            <ThemedText style={[styles.filterOptionText, { color: palette.text }]}>
+                              {selectedColors.includes(option) ? `✓ ${option}` : option}
+                            </ThemedText>
+                          </View>
                         </TouchableOpacity>
                       ))}
                     </ScrollView>
@@ -486,8 +520,8 @@ export default function MapScreen() {
                   style={[styles.clearFiltersButton, { borderColor: palette.border }]}
                   onPress={() => {
                     setSelectedBreed(FILTER_ANY);
-                    setSelectedSize(FILTER_ANY);
-                    setSelectedColor(FILTER_ANY);
+                    setSelectedSizes([]);
+                    setSelectedColors([]);
                     setActiveFilterMenu(null);
                   }}>
                   <ThemedText style={[styles.clearFiltersButtonText, { color: palette.text }]}>Clear Filters</ThemedText>
@@ -716,6 +750,25 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     borderBottomWidth: 1,
     borderBottomColor: '#e4e9ef',
+  },
+  filterOptionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  colorSwatch: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 1,
+    marginRight: 8,
+  },
+  colorSwatchMulticolor: {
+    flexDirection: 'row',
+    overflow: 'hidden',
+    borderColor: '#7c3aed',
+  },
+  colorSwatchPart: {
+    flex: 1,
   },
   filterOptionSelected: {
     backgroundColor: '#e8f3ff',
