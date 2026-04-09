@@ -40,9 +40,7 @@ export default function TabLayout() {
             fontSize: 12,
             fontWeight: '700',
           },
-          animationEnabled: true,
         }}
-        sceneContainerStyle={{ backgroundColor: Colors[colorScheme ?? 'light'].background }}
         screenListeners={{
           tabPress: ({ target }) => {
             // Enable smooth transitions on tab press
@@ -70,10 +68,10 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="messages"
+        name="notifications"
         options={{
-          title: 'Messages',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="bubble.left.and.bubble.right.fill" color={color} />,
+          title: 'Alerts',
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="bell.fill" color={color} />,
         }}
       />
     </Tabs>

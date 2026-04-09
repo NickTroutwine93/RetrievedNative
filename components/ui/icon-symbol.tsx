@@ -18,6 +18,7 @@ const MAPPING = {
   'magnifyingglass': 'search',
   'map.fill': 'map',
   'bubble.left.and.bubble.right.fill': 'chat',
+  'bell.fill': 'notifications',
   'paperplane.fill': 'send',
   'chevron.left.forwardslash.chevron.right': 'code',
   'chevron.right': 'chevron-right',

@@ -41,6 +41,7 @@ const PET_BREED_OPTIONS = [
   'Pit Bull / Staffordshire Terrier',
   'Pomeranian',
   'Poodle',
+  'Pug',
   'Rottweiler',
   'Schnauzer',
   'Shih Tzu',
@@ -80,6 +81,26 @@ function getMulticolorSwatchParts(selectedColors: string[]) {
   return palette.map((color) => getPetColorSwatchStyle(color).backgroundColor);
 }
 
+function parseBreedValues(rawBreed: any): string[] {
+  if (Array.isArray(rawBreed)) {
+    return rawBreed.map((breed) => String(breed).trim()).filter((breed) => breed.length > 0);
+  }
+
+  if (typeof rawBreed === 'string') {
+    return rawBreed
+      .split(',')
+      .map((breed) => breed.trim())
+      .filter((breed) => breed.length > 0);
+  }
+
+  return [];
+}
+
+function formatBreedLabel(rawBreed: any): string {
+  const breeds = parseBreedValues(rawBreed);
+  return breeds.length > 0 ? breeds.join(', ') : 'Unknown';
+}
+
 function isRemotePetImage(image?: string, imageType?: string) {
   return Boolean(image) && (imageType === 'url' || String(image).startsWith('http'));
 }
@@ -108,7 +129,7 @@ export default function HomeScreen() {
   const [modalVisible, setModalVisible] = useState(false);
   const [isAddMode, setIsAddMode] = useState(false);
   const [editName, setEditName] = useState('');
-  const [editBreed, setEditBreed] = useState('');
+  const [editBreeds, setEditBreeds] = useState<string[]>([]);
   const [editColors, setEditColors] = useState<string[]>([]);
   const [editSize, setEditSize] = useState('');
   const [showBreedDropdown, setShowBreedDropdown] = useState(false);
@@ -145,7 +166,7 @@ export default function HomeScreen() {
     docId?: string;
     OwnerID?: string;
     Name?: string;
-    Breed?: string;
+    Breed?: string | string[];
     Color?: string[] | string;
     Size?: string;
     Image?: string;
@@ -270,7 +291,7 @@ export default function HomeScreen() {
     setEditingPet(pet);
     setShowRemoveConfirm(false);
     setEditName(pet.Name ?? '');
-    setEditBreed(pet.Breed ?? '');
+    setEditBreeds(parseBreedValues(pet.Breed));
     const incomingColors = Array.isArray(pet.Color)
       ? pet.Color
       : String(pet.Color ?? '')
@@ -306,7 +327,7 @@ export default function HomeScreen() {
     setEditingPet(null);
     setShowRemoveConfirm(false);
     setEditName('');
-    setEditBreed('');
+    setEditBreeds([]);
     setEditColors([]);
     setEditSize('');
     setShowBreedDropdown(false);
@@ -333,6 +354,14 @@ export default function HomeScreen() {
       prev.includes(color)
         ? prev.filter((item) => item !== color)
         : [...prev, color]
+    );
+  };
+
+  const toggleBreed = (breed: string) => {
+    setEditBreeds((prev) =>
+      prev.includes(breed)
+        ? prev.filter((item) => item !== breed)
+        : [...prev, breed]
     );
   };
 
@@ -558,7 +587,7 @@ export default function HomeScreen() {
 
       const updates: any = {
         Name: editName || '',
-        Breed: editBreed || '',
+        Breed: editBreeds,
         Color: colorArray,
         Size: editSize || '',
         Image: nextImage,
@@ -571,10 +600,10 @@ export default function HomeScreen() {
           return;
         }
         const newPet = await addPet(db, user.id, updates);
-        setPets((prev: PetRecord[]) => [...prev, { ...newPet, Name: editName, Breed: editBreed, Color: updates.Color, Size: editSize, Image: nextImage, ImageType: nextImageType, Status: 1 }]);
+        setPets((prev: PetRecord[]) => [...prev, { ...newPet, Name: editName, Breed: editBreeds, Color: updates.Color, Size: editSize, Image: nextImage, ImageType: nextImageType, Status: 1 }]);
       } else if (editingPet && petDocId) {
         await updatePet(db, petDocId, updates);
-        setPets((prev: PetRecord[]) => prev.map((pet) => ((pet.docId || pet.id) === petDocId ? { ...pet, ...updates, Name: editName, Breed: editBreed, Color: updates.Color, Size: editSize, Image: nextImage, ImageType: nextImageType } : pet)));
+        setPets((prev: PetRecord[]) => prev.map((pet) => ((pet.docId || pet.id) === petDocId ? { ...pet, ...updates, Name: editName, Breed: editBreeds, Color: updates.Color, Size: editSize, Image: nextImage, ImageType: nextImageType } : pet)));
 
         const shouldDeletePreviousImage =
           editImageUri.length > 0
@@ -856,156 +885,165 @@ export default function HomeScreen() {
       <Modal animationType="slide" transparent={true} visible={modalVisible} onRequestClose={closeEditModal}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <ThemedText type="title" style={styles.modalTitle}>{isAddMode ? 'Add Pet' : 'Edit Pet'}</ThemedText>
-            <TextInput style={styles.input} value={editName} onChangeText={setEditName} placeholder="Name" />
+            <ScrollView
+              style={styles.modalScrollView}
+              contentContainerStyle={styles.modalScrollContent}
+              nestedScrollEnabled
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}>
+              <ThemedText type="title" style={styles.modalTitle}>{isAddMode ? 'Add Pet' : 'Edit Pet'}</ThemedText>
+              <TextInput style={styles.input} value={editName} onChangeText={setEditName} placeholder="Name" />
 
-            <View style={styles.dropdownSection}>
-              <ThemedText style={styles.dropdownLabel}>Breed</ThemedText>
-              <TouchableOpacity
-                style={styles.selectorInput}
-                onPress={() => {
-                  setShowBreedDropdown((prev) => !prev);
-                  setShowSizeDropdown(false);
-                  setShowColorDropdown(false);
-                }}>
-                <ThemedText style={styles.selectorInputText}>{editBreed || 'Select breed'}</ThemedText>
-              </TouchableOpacity>
-              {showBreedDropdown && (
-                <ScrollView style={styles.dropdownMenuTall} nestedScrollEnabled>
-                  {PET_BREED_OPTIONS.map((breedOption) => (
-                    <TouchableOpacity
-                      key={breedOption}
-                      style={[styles.dropdownOption, editBreed === breedOption ? styles.dropdownOptionSelected : null]}
-                      onPress={() => {
-                        setEditBreed(breedOption);
-                        setShowBreedDropdown(false);
-                      }}>
-                      <ThemedText style={styles.dropdownOptionText}>{breedOption}</ThemedText>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-              )}
-            </View>
-
-            <View style={styles.dropdownSection}>
-              <ThemedText style={styles.dropdownLabel}>Size</ThemedText>
-              <TouchableOpacity
-                style={styles.selectorInput}
-                onPress={() => {
-                  setShowSizeDropdown((prev) => !prev);
-                  setShowBreedDropdown(false);
-                  setShowColorDropdown(false);
-                }}>
-                <ThemedText style={styles.selectorInputText}>{editSize || 'Select size'}</ThemedText>
-              </TouchableOpacity>
-              {showSizeDropdown && (
-                <View style={styles.dropdownMenu}>
-                  {PET_SIZE_OPTIONS.map((sizeOption) => (
-                    <TouchableOpacity
-                      key={sizeOption}
-                      style={[styles.dropdownOption, editSize === sizeOption ? styles.dropdownOptionSelected : null]}
-                      onPress={() => {
-                        setEditSize(sizeOption);
-                        setShowSizeDropdown(false);
-                      }}>
-                      <ThemedText style={styles.dropdownOptionText}>{sizeOption}</ThemedText>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              )}
-            </View>
-
-            <View style={styles.dropdownSection}>
-              <ThemedText style={styles.dropdownLabel}>Colors</ThemedText>
-              <TouchableOpacity
-                style={styles.selectorInput}
-                onPress={() => {
-                  setShowColorDropdown((prev) => !prev);
-                  setShowBreedDropdown(false);
-                  setShowSizeDropdown(false);
-                }}>
-                <ThemedText style={styles.selectorInputText}>
-                  {editColors.length > 0 ? `${editColors.length} selected` : 'Select colors'}
-                </ThemedText>
-              </TouchableOpacity>
-              {showColorDropdown && (
-                <ScrollView style={styles.dropdownMenuTall} nestedScrollEnabled>
-                  {PET_COLOR_OPTIONS.map((colorOption) => {
-                    const isSelected = editColors.includes(colorOption);
-                    const swatchStyle = getPetColorSwatchStyle(colorOption);
-                    const swatchParts =
-                      colorOption === 'Multicolor' ? getMulticolorSwatchParts(editColors) : [];
-                    return (
+              <View style={styles.dropdownSection}>
+                <ThemedText style={styles.dropdownLabel}>Breed</ThemedText>
+                <TouchableOpacity
+                  style={styles.selectorInput}
+                  onPress={() => {
+                    setShowBreedDropdown((prev) => !prev);
+                    setShowSizeDropdown(false);
+                    setShowColorDropdown(false);
+                  }}>
+                  <ThemedText style={styles.selectorInputText}>{editBreeds.length > 0 ? `${editBreeds.length} selected` : 'Select breed(s)'}</ThemedText>
+                </TouchableOpacity>
+                {showBreedDropdown && (
+                  <ScrollView style={styles.dropdownMenuTall} nestedScrollEnabled>
+                    {PET_BREED_OPTIONS.map((breedOption) => (
                       <TouchableOpacity
-                        key={colorOption}
-                        style={[styles.dropdownOption, isSelected ? styles.dropdownOptionSelected : null]}
-                        onPress={() => toggleColor(colorOption)}>
-                        <View style={styles.dropdownOptionRow}>
-                          {colorOption === 'Multicolor' ? (
-                            <View style={[styles.colorSwatch, styles.colorSwatchMulticolor]}>
-                              {swatchParts.map((partColor, index) => (
-                                <View
-                                  key={`${colorOption}-part-${index}`}
-                                  style={[styles.colorSwatchPart, { backgroundColor: partColor }]}
-                                />
-                              ))}
-                            </View>
-                          ) : (
-                            <View style={[styles.colorSwatch, swatchStyle]} />
-                          )}
-                          <ThemedText style={styles.dropdownOptionText}>{isSelected ? `✓ ${colorOption}` : colorOption}</ThemedText>
-                        </View>
+                        key={breedOption}
+                        style={[styles.dropdownOption, editBreeds.includes(breedOption) ? styles.dropdownOptionSelected : null]}
+                        onPress={() => {
+                          toggleBreed(breedOption);
+                        }}>
+                        <ThemedText style={styles.dropdownOptionText}>{editBreeds.includes(breedOption) ? `✓ ${breedOption}` : breedOption}</ThemedText>
                       </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
-              )}
-              {editColors.length > 0 && (
-                <ThemedText style={styles.selectionSummary}>{editColors.join(', ')}</ThemedText>
-              )}
-            </View>
-
-            <View style={styles.dropdownSection}>
-              <ThemedText style={styles.dropdownLabel}>Profile Photo</ThemedText>
-              <TouchableOpacity style={styles.uploadButton} onPress={pickPetImage} disabled={isSubmitting}>
-                <ThemedText style={styles.uploadButtonText}>{editImageUri ? 'Choose a Different Photo' : 'Upload Photo'}</ThemedText>
-              </TouchableOpacity>
-              <Image
-                source={resolvePetImageSource(editImage, editImageType, editImageUri)}
-                style={styles.previewImage}
-                resizeMode="cover"
-              />
-            </View>
-
-            <View style={styles.modalActions}>
-              <TouchableOpacity style={styles.saveButton} onPress={savePetChanges} disabled={isSubmitting}>
-                <ThemedText style={styles.saveButtonText}>{isSubmitting ? 'Working...' : isAddMode ? 'Add' : 'Save'}</ThemedText>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.cancelButton} onPress={closeEditModal} disabled={isSubmitting}>
-                <ThemedText style={styles.cancelButtonText}>Dismiss</ThemedText>
-              </TouchableOpacity>
-            </View>
-
-            {showRemoveConfirm && !isAddMode && (
-              <View style={styles.confirmPanel}>
-                <ThemedText style={styles.confirmTitle}>Are you sure?</ThemedText>
-                <ThemedText style={styles.confirmBody}>Remove {editingPet?.Name ?? 'this pet'} from active pets?</ThemedText>
-                <View style={styles.confirmActions}>
-                  <TouchableOpacity style={styles.confirmCancelButton} onPress={() => setShowRemoveConfirm(false)} disabled={isSubmitting}>
-                    <ThemedText style={styles.confirmCancelText}>Cancel</ThemedText>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.confirmRemoveButton} onPress={() => removePet(editingPet)} disabled={isSubmitting}>
-                    <ThemedText style={styles.confirmRemoveText}>{isSubmitting ? 'Removing...' : 'Remove'}</ThemedText>
-                  </TouchableOpacity>
-                </View>
+                    ))}
+                  </ScrollView>
+                )}
+                {editBreeds.length > 0 && (
+                  <ThemedText style={styles.selectionSummary}>{editBreeds.join(', ')}</ThemedText>
+                )}
               </View>
-            )}
 
-            {!isAddMode && (
-              <TouchableOpacity style={styles.deleteButton} onPress={() => confirmDeletePet(editingPet)} disabled={isSubmitting}>
-                <ThemedText style={styles.deleteButtonText}>{isSubmitting ? 'Removing...' : 'Remove from Active'}</ThemedText>
-              </TouchableOpacity>
-            )}
+              <View style={styles.dropdownSection}>
+                <ThemedText style={styles.dropdownLabel}>Size</ThemedText>
+                <TouchableOpacity
+                  style={styles.selectorInput}
+                  onPress={() => {
+                    setShowSizeDropdown((prev) => !prev);
+                    setShowBreedDropdown(false);
+                    setShowColorDropdown(false);
+                  }}>
+                  <ThemedText style={styles.selectorInputText}>{editSize || 'Select size'}</ThemedText>
+                </TouchableOpacity>
+                {showSizeDropdown && (
+                  <View style={styles.dropdownMenu}>
+                    {PET_SIZE_OPTIONS.map((sizeOption) => (
+                      <TouchableOpacity
+                        key={sizeOption}
+                        style={[styles.dropdownOption, editSize === sizeOption ? styles.dropdownOptionSelected : null]}
+                        onPress={() => {
+                          setEditSize(sizeOption);
+                          setShowSizeDropdown(false);
+                        }}>
+                        <ThemedText style={styles.dropdownOptionText}>{sizeOption}</ThemedText>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
+              </View>
+
+              <View style={styles.dropdownSection}>
+                <ThemedText style={styles.dropdownLabel}>Colors</ThemedText>
+                <TouchableOpacity
+                  style={styles.selectorInput}
+                  onPress={() => {
+                    setShowColorDropdown((prev) => !prev);
+                    setShowBreedDropdown(false);
+                    setShowSizeDropdown(false);
+                  }}>
+                  <ThemedText style={styles.selectorInputText}>
+                    {editColors.length > 0 ? `${editColors.length} selected` : 'Select colors'}
+                  </ThemedText>
+                </TouchableOpacity>
+                {showColorDropdown && (
+                  <ScrollView style={styles.dropdownMenuTall} nestedScrollEnabled>
+                    {PET_COLOR_OPTIONS.map((colorOption) => {
+                      const isSelected = editColors.includes(colorOption);
+                      const swatchStyle = getPetColorSwatchStyle(colorOption);
+                      const swatchParts =
+                        colorOption === 'Multicolor' ? getMulticolorSwatchParts(editColors) : [];
+                      return (
+                        <TouchableOpacity
+                          key={colorOption}
+                          style={[styles.dropdownOption, isSelected ? styles.dropdownOptionSelected : null]}
+                          onPress={() => toggleColor(colorOption)}>
+                          <View style={styles.dropdownOptionRow}>
+                            {colorOption === 'Multicolor' ? (
+                              <View style={[styles.colorSwatch, styles.colorSwatchMulticolor]}>
+                                {swatchParts.map((partColor, index) => (
+                                  <View
+                                    key={`${colorOption}-part-${index}`}
+                                    style={[styles.colorSwatchPart, { backgroundColor: partColor }]}
+                                  />
+                                ))}
+                              </View>
+                            ) : (
+                              <View style={[styles.colorSwatch, swatchStyle]} />
+                            )}
+                            <ThemedText style={styles.dropdownOptionText}>{isSelected ? `✓ ${colorOption}` : colorOption}</ThemedText>
+                          </View>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                )}
+                {editColors.length > 0 && (
+                  <ThemedText style={styles.selectionSummary}>{editColors.join(', ')}</ThemedText>
+                )}
+              </View>
+
+              <View style={styles.dropdownSection}>
+                <ThemedText style={styles.dropdownLabel}>Profile Photo</ThemedText>
+                <TouchableOpacity style={styles.uploadButton} onPress={pickPetImage} disabled={isSubmitting}>
+                  <ThemedText style={styles.uploadButtonText}>{editImageUri ? 'Choose a Different Photo' : 'Upload Photo'}</ThemedText>
+                </TouchableOpacity>
+                <Image
+                  source={resolvePetImageSource(editImage, editImageType, editImageUri)}
+                  style={styles.previewImage}
+                  resizeMode="cover"
+                />
+              </View>
+
+              <View style={styles.modalActions}>
+                <TouchableOpacity style={styles.saveButton} onPress={savePetChanges} disabled={isSubmitting}>
+                  <ThemedText style={styles.saveButtonText}>{isSubmitting ? 'Working...' : isAddMode ? 'Add' : 'Save'}</ThemedText>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.cancelButton} onPress={closeEditModal} disabled={isSubmitting}>
+                  <ThemedText style={styles.cancelButtonText}>Dismiss</ThemedText>
+                </TouchableOpacity>
+              </View>
+
+              {showRemoveConfirm && !isAddMode && (
+                <View style={styles.confirmPanel}>
+                  <ThemedText style={styles.confirmTitle}>Are you sure?</ThemedText>
+                  <ThemedText style={styles.confirmBody}>Remove {editingPet?.Name ?? 'this pet'} from active pets?</ThemedText>
+                  <View style={styles.confirmActions}>
+                    <TouchableOpacity style={styles.confirmCancelButton} onPress={() => setShowRemoveConfirm(false)} disabled={isSubmitting}>
+                      <ThemedText style={styles.confirmCancelText}>Cancel</ThemedText>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.confirmRemoveButton} onPress={() => removePet(editingPet)} disabled={isSubmitting}>
+                      <ThemedText style={styles.confirmRemoveText}>{isSubmitting ? 'Removing...' : 'Remove'}</ThemedText>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+
+              {!isAddMode && (
+                <TouchableOpacity style={styles.deleteButton} onPress={() => confirmDeletePet(editingPet)} disabled={isSubmitting}>
+                  <ThemedText style={styles.deleteButtonText}>{isSubmitting ? 'Removing...' : 'Remove from Active'}</ThemedText>
+                </TouchableOpacity>
+              )}
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -1200,7 +1238,7 @@ export default function HomeScreen() {
                   />
 
                   <View style={styles.petDetails}>
-                    <ThemedText>Breed: {pet.Breed ?? 'Unknown'}</ThemedText>
+                    <ThemedText>Breed: {formatBreedLabel(pet.Breed)}</ThemedText>
                     <ThemedText>Color: {Array.isArray(pet.Color) ? pet.Color.join(', ') : pet.Color ?? 'Unknown'}</ThemedText>
                     <ThemedText>Size: {pet.Size ?? 'Unknown'}</ThemedText>
                   </View>
@@ -1448,9 +1486,17 @@ const styles = StyleSheet.create({
   },
   modalContent: {
     width: '100%',
+    maxHeight: '88%',
     backgroundColor: '#fff',
     borderRadius: 12,
-    padding: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+  },
+  modalScrollView: {
+    flexGrow: 0,
+  },
+  modalScrollContent: {
+    paddingBottom: 8,
   },
   modalTitle: {
     fontSize: 20,

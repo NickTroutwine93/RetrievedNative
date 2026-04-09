@@ -3,9 +3,9 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { runOnJS } from 'react-native-reanimated';
 import { useNavigation, useRoute } from '@react-navigation/native';
 
-type TabName = 'index' | 'searches' | 'map' | 'messages';
+type TabName = 'index' | 'searches' | 'map' | 'notifications';
 
-const TAB_ORDER: TabName[] = ['index', 'searches', 'map', 'messages'];
+const TAB_ORDER: TabName[] = ['index', 'searches', 'map', 'notifications'];
 
 export const useSwipeNavigation = () => {
   const navigation = useNavigation();

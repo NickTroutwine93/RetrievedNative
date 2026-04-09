@@ -17,6 +17,16 @@ const petImageSources: Record<string, any> = {
   'Default.jpg': require('../../assets/pets/Default.jpg'),
 };
 
+function formatBreedLabel(value: any): string {
+  if (Array.isArray(value)) {
+    const breeds = value.map((breed) => String(breed).trim()).filter((breed) => breed.length > 0);
+    return breeds.length > 0 ? breeds.join(', ') : 'Unknown';
+  }
+
+  const text = String(value ?? '').trim();
+  return text.length > 0 ? text : 'Unknown';
+}
+
 export default function SearchesScreen() {
   const colorScheme = useColorScheme() ?? 'light';
   const palette = Colors[colorScheme];
@@ -174,7 +184,7 @@ export default function SearchesScreen() {
           />
 
           <View style={styles.petDetails}>
-            <ThemedText>Breed: {search?.pet?.Breed ?? 'Unknown'}</ThemedText>
+            <ThemedText>Breed: {formatBreedLabel(search?.pet?.Breed)}</ThemedText>
             <ThemedText>Color: {Array.isArray(search?.pet?.Color) ? search.pet.Color.join(', ') : search?.pet?.Color ?? 'Unknown'}</ThemedText>
             <ThemedText>Size: {search?.pet?.Size ?? 'Unknown'}</ThemedText>
           </View>
@@ -230,7 +240,7 @@ export default function SearchesScreen() {
             />
 
             <View style={styles.petDetails}>
-              <ThemedText>Breed: {search?.pet?.Breed ?? 'Unknown'}</ThemedText>
+              <ThemedText>Breed: {formatBreedLabel(search?.pet?.Breed)}</ThemedText>
               <ThemedText>Color: {Array.isArray(search?.pet?.Color) ? search.pet.Color.join(', ') : search?.pet?.Color ?? 'Unknown'}</ThemedText>
               <ThemedText>Size: {search?.pet?.Size ?? 'Unknown'}</ThemedText>
             </View>

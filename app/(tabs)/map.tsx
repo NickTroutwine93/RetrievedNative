@@ -47,6 +47,7 @@ const BREED_FILTER_OPTIONS = [
   'Pit Bull / Staffordshire Terrier',
   'Pomeranian',
   'Poodle',
+  'Pug',
   'Rottweiler',
   'Schnauzer',
   'Shih Tzu',
@@ -85,6 +86,28 @@ function getMulticolorSwatchParts(selectedColors: string[]) {
 
 function normalizeValue(value: any) {
   return String(value ?? '').trim().toLowerCase();
+}
+
+function getNormalizedBreedList(value: any): string[] {
+  if (Array.isArray(value)) {
+    return value.map((item) => normalizeValue(item)).filter((item) => item.length > 0);
+  }
+
+  return String(value ?? '')
+    .split(',')
+    .map((item) => normalizeValue(item))
+    .filter((item) => item.length > 0);
+}
+
+function formatBreedLabel(value: any): string {
+  const breeds = getNormalizedBreedList(value);
+  if (breeds.length === 0) {
+    return 'Unknown';
+  }
+
+  return breeds
+    .map((breed) => breed.split(' ').map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(' '))
+    .join(', ');
 }
 
 function milesBetweenPoints(a: { latitude: number; longitude: number }, b: { latitude: number; longitude: number }) {
@@ -178,7 +201,7 @@ export default function MapScreen() {
 
     return areaSearches.filter((search) => {
       const pet = search?.pet ?? {};
-      const petBreed = normalizeValue(pet?.Breed);
+      const petBreeds = getNormalizedBreedList(pet?.Breed);
       const petSize = normalizeValue(pet?.Size);
       const petColors = Array.isArray(pet?.Color)
         ? pet.Color.map((color: string) => normalizeValue(color))
@@ -187,7 +210,7 @@ export default function MapScreen() {
             .map((color) => normalizeValue(color))
             .filter((color) => color.length > 0);
 
-      const breedMatch = normalizedBreeds.length === 0 || normalizedBreeds.includes(petBreed);
+      const breedMatch = normalizedBreeds.length === 0 || petBreeds.some((breed: string) => normalizedBreeds.includes(breed));
       const sizeMatch = normalizedSizes.length === 0 || normalizedSizes.includes(petSize);
       const colorMatch = normalizedColors.length === 0 || petColors.some((color: string) => normalizedColors.includes(color));
 
@@ -644,7 +667,7 @@ export default function MapScreen() {
                     />
 
                     <View style={styles.petDetails}>
-                      <ThemedText>Breed: {search?.pet?.Breed ?? 'Unknown'}</ThemedText>
+                      <ThemedText>Breed: {formatBreedLabel(search?.pet?.Breed)}</ThemedText>
                       <ThemedText>Color: {Array.isArray(search?.pet?.Color) ? search.pet.Color.join(', ') : search?.pet?.Color ?? 'Unknown'}</ThemedText>
                       <ThemedText>Size: {search?.pet?.Size ?? 'Unknown'}</ThemedText>
                       <ThemedText>Distance: {Number(search?.distanceMiles ?? 0).toFixed(1)} miles away</ThemedText>
