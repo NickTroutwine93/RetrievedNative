@@ -21,6 +21,23 @@ export const UserRole = Object.freeze({
   ADMIN: 3,
 });
 
+// ---------------------------------------------------------------------------
+// Client-side rate limiter
+// Keyed by "action:userId:targetId". Prevents rapid-fire writes without
+// requiring Cloud Functions. Server-side enforcement should be added in Phase 5.
+// ---------------------------------------------------------------------------
+const _rateLimitTimestamps = new Map();
+
+function checkRateLimit(key, cooldownMs) {
+  const now = Date.now();
+  const last = _rateLimitTimestamps.get(key) ?? 0;
+  if (now - last < cooldownMs) {
+    const remainingSeconds = Math.ceil((cooldownMs - (now - last)) / 1000);
+    throw new Error(`Please wait ${remainingSeconds}s before trying again.`);
+  }
+  _rateLimitTimestamps.set(key, now);
+}
+
 function normalizeUserRole(rawRole) {
   const parsedRole = Number(rawRole);
   if (parsedRole === UserRole.SHELTER || parsedRole === UserRole.ADMIN) {
@@ -839,6 +856,8 @@ export async function sendSearchMessage(db, { searchId, senderId, senderName, te
       throw new Error('Message cannot be empty.');
     }
 
+    checkRateLimit(`message:${senderId}:${searchId}`, 5000);
+
     const searchRef = doc(db, 'searches', searchId);
     const searchDoc = await getDoc(searchRef);
     if (!searchDoc.exists()) {
@@ -1169,6 +1188,8 @@ export async function submitSearchSighting(db, { searchId, reporterId, reporterN
     if (!canSubmitSighting) {
       throw new Error('Only the pet owner or joined searchers can add sightings.');
     }
+
+    checkRateLimit(`sighting:${reporterId}:${searchId}`, 30000);
 
     const sightingRecord = {
       id: `${reporterId}-${Date.now()}`,
