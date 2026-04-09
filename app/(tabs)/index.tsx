@@ -1,20 +1,22 @@
 import React, { useEffect, useState } from 'react';
 import { StyleSheet, ScrollView, View, Image, TouchableOpacity, Modal, TextInput, Alert } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
+import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MapTilerTileMap } from '@/components/maptiler-tile-map';
 import { ThemedText } from '../../components/themed-text';
-import { ThemedView } from '../../components/themed-view';
 import { IconSymbol } from '../../components/ui/icon-symbol';
 import { auth, db } from '../../src/services/firebaseClient';
+import { deletePetImageByUrl, uploadPetImage } from '../../src/services/storageService';
 import { getUserData, getUserPets, updatePet, addPet, deactivatePet, updateUserProfile, createSearch, getUserSearches } from '../../src/services/userService';
 
+const DEFAULT_PET_IMAGE = require('../../assets/pets/Default.jpg');
 const petImageSources: Record<string, any> = {
   'Rigby.jpg': require('../../assets/pets/Rigby.jpg'),
   'Taz.jpg': require('../../assets/pets/Taz.jpg'),
-  'Default.jpg': require('../../assets/pets/Default.jpg'),
+  'Default.jpg': DEFAULT_PET_IMAGE,
 };
 const MAPTILER_KEY = process.env.EXPO_PUBLIC_MAPTILER_API_KEY;
 const PET_SIZE_OPTIONS = ['XS', 'S', 'M', 'L', 'XL'];
@@ -78,6 +80,26 @@ function getMulticolorSwatchParts(selectedColors: string[]) {
   return palette.map((color) => getPetColorSwatchStyle(color).backgroundColor);
 }
 
+function isRemotePetImage(image?: string, imageType?: string) {
+  return Boolean(image) && (imageType === 'url' || String(image).startsWith('http'));
+}
+
+function resolvePetImageSource(image?: string, imageType?: string, imageUri?: string) {
+  if (imageUri) {
+    return { uri: imageUri };
+  }
+
+  if (image && isRemotePetImage(image, imageType)) {
+    return { uri: image };
+  }
+
+  if (image && petImageSources[image]) {
+    return petImageSources[image];
+  }
+
+  return DEFAULT_PET_IMAGE;
+}
+
 export default function HomeScreen() {
   const [user, setUser] = useState<any>(null);
   const [pets, setPets] = useState<any>([]);
@@ -105,7 +127,7 @@ export default function HomeScreen() {
   const [profileAddressTouched, setProfileAddressTouched] = useState(false);
   const [profileGeocodedAddress, setProfileGeocodedAddress] = useState('');
   const [profileAddressError, setProfileAddressError] = useState('');
-  const [profileAddressSuggestions, setProfileAddressSuggestions] = useState<Array<{ displayName: string; latitude: number; longitude: number }>>([]);
+  const [profileAddressSuggestions, setProfileAddressSuggestions] = useState<{ displayName: string; latitude: number; longitude: number }[]>([]);
   const [isSearchingAddress, setIsSearchingAddress] = useState(false);
   const [addressGuidanceText, setAddressGuidanceText] = useState('');
   const [isGeocodingAddress, setIsGeocodingAddress] = useState(false);
@@ -314,6 +336,34 @@ export default function HomeScreen() {
     );
   };
 
+  const pickPetImage = async () => {
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert('Permission required', 'Photo library permission is required to choose a pet image.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.85,
+      });
+
+      if (result.canceled || !result.assets?.[0]?.uri) {
+        return;
+      }
+
+      setEditImageUri(result.assets[0].uri);
+      setShowBreedDropdown(false);
+      setShowSizeDropdown(false);
+      setShowColorDropdown(false);
+    } catch (error: any) {
+      Alert.alert('Image unavailable', error?.message || 'Could not open your photo library.');
+    }
+  };
+
   const closeProfileModal = () => {
     setProfileModalVisible(false);
     setProfileFirstName('');
@@ -452,6 +502,8 @@ export default function HomeScreen() {
   const removePet = async (targetPet?: PetRecord) => {
     const activePet = targetPet || editingPet;
     const petDocId = activePet?.docId || activePet?.id;
+    const activePetImage = activePet?.Image ?? '';
+    const activePetImageType = activePet?.ImageType ?? '';
 
     if (!petDocId) {
       Alert.alert('Error', 'Pet document id is missing, cannot remove this pet.');
@@ -461,6 +513,15 @@ export default function HomeScreen() {
     try {
       setIsSubmitting(true);
       await deactivatePet(db, petDocId);
+
+      if (isRemotePetImage(activePetImage, activePetImageType)) {
+        try {
+          await deletePetImageByUrl(activePetImage);
+        } catch (cleanupError) {
+          console.warn('Unable to delete deactivated pet image from Firebase Storage:', cleanupError);
+        }
+      }
+
       setPets((prev: PetRecord[]) => prev.filter((pet) => (pet.docId || pet.id) !== petDocId));
       closeEditModal();
       Alert.alert('Deactivated', `${activePet?.Name ?? 'Pet'} has been removed from active pets.`);
@@ -475,31 +536,68 @@ export default function HomeScreen() {
   const savePetChanges = async () => {
     const petDocId = editingPet?.docId || editingPet?.id;
     const colorArray = editColors;
-
-    const updates: any = {
-      Name: editName || '',
-      Breed: editBreed || '',
-      Color: colorArray,
-      Size: editSize || '',
-      Image: editImage || '',
-      ImageType: editImageType || '',
-    };
+    let uploadedImageUrl = '';
 
     try {
       setIsSubmitting(true);
+      let nextImage = editImage || '';
+      let nextImageType = editImageType || '';
+      const previousImage = editingPet?.Image ?? '';
+      const previousImageType = editingPet?.ImageType ?? '';
+
+      if (editImageUri) {
+        const ownerId = user?.id || editingPet?.OwnerID;
+        if (!ownerId) {
+          throw new Error('User account not loaded');
+        }
+
+        nextImage = await uploadPetImage(ownerId, editImageUri);
+        uploadedImageUrl = nextImage;
+        nextImageType = 'url';
+      }
+
+      const updates: any = {
+        Name: editName || '',
+        Breed: editBreed || '',
+        Color: colorArray,
+        Size: editSize || '',
+        Image: nextImage,
+        ImageType: nextImageType,
+      };
+
       if (isAddMode) {
         if (!user?.id) {
           Alert.alert('Error', 'User account not loaded');
           return;
         }
         const newPet = await addPet(db, user.id, updates);
-        setPets((prev: PetRecord[]) => [...prev, { ...newPet, Name: editName, Breed: editBreed, Color: updates.Color, Size: editSize, Image: editImage, ImageType: editImageType, Status: 1 }]);
+        setPets((prev: PetRecord[]) => [...prev, { ...newPet, Name: editName, Breed: editBreed, Color: updates.Color, Size: editSize, Image: nextImage, ImageType: nextImageType, Status: 1 }]);
       } else if (editingPet && petDocId) {
         await updatePet(db, petDocId, updates);
-        setPets((prev: PetRecord[]) => prev.map((pet) => ((pet.docId || pet.id) === petDocId ? { ...pet, ...updates, Name: editName, Breed: editBreed, Color: updates.Color, Size: editSize, Image: editImage, ImageType: editImageType } : pet)));
+        setPets((prev: PetRecord[]) => prev.map((pet) => ((pet.docId || pet.id) === petDocId ? { ...pet, ...updates, Name: editName, Breed: editBreed, Color: updates.Color, Size: editSize, Image: nextImage, ImageType: nextImageType } : pet)));
+
+        const shouldDeletePreviousImage =
+          editImageUri.length > 0
+          && previousImage !== nextImage
+          && isRemotePetImage(previousImage, previousImageType);
+
+        if (shouldDeletePreviousImage) {
+          try {
+            await deletePetImageByUrl(previousImage);
+          } catch (cleanupError) {
+            console.warn('Unable to delete previous pet image from Firebase Storage:', cleanupError);
+          }
+        }
       }
       closeEditModal();
     } catch (error: any) {
+      if (uploadedImageUrl) {
+        try {
+          await deletePetImageByUrl(uploadedImageUrl);
+        } catch (cleanupError) {
+          console.warn('Unable to clean up newly uploaded pet image after save failure:', cleanupError);
+        }
+      }
       console.error('Error saving pet changes:', error);
       Alert.alert('Save failed', error?.message || 'Unknown save error.');
     } finally {
@@ -867,6 +965,18 @@ export default function HomeScreen() {
               )}
             </View>
 
+            <View style={styles.dropdownSection}>
+              <ThemedText style={styles.dropdownLabel}>Profile Photo</ThemedText>
+              <TouchableOpacity style={styles.uploadButton} onPress={pickPetImage} disabled={isSubmitting}>
+                <ThemedText style={styles.uploadButtonText}>{editImageUri ? 'Choose a Different Photo' : 'Upload Photo'}</ThemedText>
+              </TouchableOpacity>
+              <Image
+                source={resolvePetImageSource(editImage, editImageType, editImageUri)}
+                style={styles.previewImage}
+                resizeMode="cover"
+              />
+            </View>
+
             <View style={styles.modalActions}>
               <TouchableOpacity style={styles.saveButton} onPress={savePetChanges} disabled={isSubmitting}>
                 <ThemedText style={styles.saveButtonText}>{isSubmitting ? 'Working...' : isAddMode ? 'Add' : 'Save'}</ThemedText>
@@ -1084,11 +1194,7 @@ export default function HomeScreen() {
 
                 <View style={styles.petCardRow}>
                   <Image
-                    source={
-                      pet.Image && pet.Image.startsWith('http')
-                        ? { uri: pet.Image }
-                        : petImageSources[pet.Image] || require('../../assets/pets/Default.jpg')
-                    }
+                    source={resolvePetImageSource(pet.Image, pet.ImageType)}
                     style={styles.petImage}
                     resizeMode="cover"
                   />

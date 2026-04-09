@@ -47,20 +47,35 @@ function normalizeUserRole(rawRole) {
   return UserRole.USER;
 }
 
+function normalizePetImageType(image, imageType) {
+  const normalizedType = String(imageType ?? '').trim();
+  if (normalizedType) {
+    return normalizedType;
+  }
+
+  const normalizedImage = String(image ?? '').trim();
+  if (/^https?:\/\//i.test(normalizedImage)) {
+    return 'url';
+  }
+
+  return '';
+}
+
 function mapPetRecord(petDoc) {
   if (!petDoc?.exists()) {
     return null;
   }
 
   const petData = petDoc.data();
+  const image = petData.Image ?? petData.image ?? null;
   return {
     id: petDoc.id,
     Name: petData.Name ?? petData.name ?? '',
     Breed: petData.Breed ?? petData.breed ?? '',
     Color: petData.Color ?? petData.color ?? [],
     Size: petData.Size ?? petData.size ?? '',
-    Image: petData.Image ?? petData.image ?? null,
-    ImageType: petData.ImageType ?? petData.imageType ?? '',
+    Image: image,
+    ImageType: normalizePetImageType(image, petData.ImageType ?? petData.imageType),
   };
 }
 
@@ -472,6 +487,7 @@ export async function getUserPets(db, ownerId) {
     
     return activePets.map((doc) => {
       const data = doc.data();
+      const image = data.Image ?? data.image ?? null;
       return {
         id: doc.id,
         docId: doc.id,
@@ -482,8 +498,8 @@ export async function getUserPets(db, ownerId) {
         Color: data.Color ?? data.color ?? [],
         Age: data.Age ?? data.age,
         Size: data.Size ?? data.size ?? '',
-        Image: data.Image ?? data.image ?? null,
-        ImageType: data.ImageType ?? data.imageType ?? '',
+        Image: image,
+        ImageType: normalizePetImageType(image, data.ImageType ?? data.imageType),
         Status: data.Status ?? data.status ?? 1,
       };
     });
